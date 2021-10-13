@@ -13,7 +13,11 @@ class ConfigFileError(Exception):
     pass
 
 gtf = []
-anno = []
+
+# anno[0]: list of normal gene sets
+# anno[1]: list of mandatory transcript sets
+anno = [[], []]
+forced_gene_sets = []
 hintfiles = []
 graph = None
 out = ''
@@ -54,9 +58,19 @@ def main():
     for g in gtf:
         if not quiet:
             sys.stderr.write('### READING GENE PREDICTION: [{}]\n'.format(g))
-        anno.append(Anno(g, 'anno{}'.format(c)))
-        anno[-1].addGtf()
-        anno[-1].norm_tx_format()
+        anno[0].append(Anno(g, 'anno{}'.format(c)))
+        anno[0][-1].addGtf()
+        anno[0][-1].norm_tx_format()
+        c += 1
+
+    # read mandatory transcript sets
+    c = 1
+    for g in forced_gene_sets:
+        if not quiet:
+            sys.stderr.write('### READING GENE PREDICTION: [{}]\n'.format(g))
+        anno[1].append(Anno(g, 'mandatory_tx_set{}'.format(c)))
+        anno[1][-1].addGtf()
+        anno[1][-1].norm_tx_format()
         c += 1
 
     # read hintfiles
@@ -73,7 +87,7 @@ def main():
     # create graph with an edge for each unique transcript
     # and an edge if two transcripts overlap
     # two transcripts overlap if they share at least 3 adjacent protein coding nucleotides
-    graph = Graph(anno, para=parameter, verbose=v)
+    graph = Graph(anno[0], mandatory_tx_sets=anno[1], para=parameter, verbose=v)
     if not quiet:
         sys.stderr.write('### BUILD OVERLAP GRAPH\n')
     graph.build()
@@ -90,14 +104,14 @@ def main():
 
     if v > 0:
         sys.stderr.write(str(combined_prediction.keys()) + '\n')
-        for a in anno:
+        for a in anno[0] + anno[1]:
             sys.stderr.write('Numb_tx in {}: {}\n'.format(a.id, len(combined_prediction[a.id])))
 
     # write result to output file
     if not quiet:
         sys.stderr.write('### WRITE COMBINED GENE PREDICTION\n')
     combined_anno = Anno('', 'combined_annotation')
-    for a in anno:
+    for a in anno[0] + anno[1]:
         txs = a.get_subset([t[0] for t in combined_prediction[a.id]])
         for id, new_gene_id in combined_prediction[a.id]:
             txs[id].set_gene_id(new_gene_id)
@@ -127,11 +141,13 @@ def set_parameter(cfg_file):
                 parameter[line[0]] = float(line[1])
 
 def init(args):
-    global gtf, hintfiles, threads, hint_source_weight, out, v, quiet
+    global gtf, hintfiles, forced_gene_sets, threads, hint_source_weight, out, v, quiet
     if args.gtf:
         gtf = args.gtf.split(',')
     if args.hintfiles:
         hintfiles = args.hintfiles.split(',')
+    if args.forced_gene_sets:
+        forced_gene_sets = args.forced_gene_sets.split(',')
     if args.cfg:
         cfg_file = args.cfg
     else:
@@ -156,6 +172,9 @@ def parseCmd():
     parser.add_argument('-g', '--gtf', type=str, required=True,
         help='List (separated by commas) of gene prediciton files in gtf.\n' \
             + '(e.g. gene_pred1.gtf,gene_pred2.gtf,gene_pred3.gtf)')
+    parser.add_argument('-f', '--forced_gene_sets', type=str, required=False,
+        help='List (separated by commas) of gtf files with transcripts that will be forced.\n' \
+            + '(e.g. mandatory_txs1.gtf,mandatory_txs2.gtf,mandatory_txs3.gtf)')
     parser.add_argument('-e', '--hintfiles', type=str, required=True,
         help='List (separated by commas) of files containing extrinsic evidence in gff.\n' \
             + '(e.g. hintsfile1.gff,hintsfile2.gtf,3.gtf)')

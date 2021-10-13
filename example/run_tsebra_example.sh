@@ -28,7 +28,7 @@ b2=$new_b2
 
 o=$d/braker1+2.gtf
 
-echo "*** Running PrEvCo ***\n"
+echo "*** Running TSEBRA ***\n"
 
 $c/../bin/tsebra.py -g $b1,$b2 -c $c/../config/default.cfg -e $h1,$h2 -o $o
 

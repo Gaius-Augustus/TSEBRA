@@ -27,7 +27,7 @@ class Node:
     """
         Class handling a node that represents a transcript in the overlap graph.
     """
-    def __init__(self, a_id, t_id):
+    def __init__(self, a_id, t_id, mandatory=False):
         """
             Args:
                 a_id (str): Annotation ID of the transcript from Anno object
@@ -39,7 +39,7 @@ class Node:
         self.anno_id = a_id
         # unique ID for a cluster of overlapping transcripts
         self.component_id = None
-
+        self.mandatory=mandatory
         # dict of edge_ids of edges that are incident
         # self.edge_to[id of incident Node] = edge_id
         self.edge_to = {}
@@ -50,7 +50,7 @@ class Graph:
     """
         Overlap graph that can detect and filter overlapping transcripts.
     """
-    def __init__(self, genome_anno_lst, para, verbose=0):
+    def __init__(self, genome_anno_lst, para, mandatory_tx_sets=[], verbose=0):
         """
             Args:
                 genome_anno_lst (list(Anno)): List of Anno class objects
@@ -64,8 +64,8 @@ class Graph:
         # self.edges['ei'] = Edge()
         self.edges = {}
 
-        # self.anno[annoid] = Anno()
         self.anno = {}
+        self.mandatory_anno_keys = []
 
         # list of connected graph components
         self.component_list = []
@@ -85,18 +85,23 @@ class Graph:
         self.para = para
 
         # init annotations, check for duplicate ids
-        self.init_anno(genome_anno_lst)
+        self.__init_anno__(genome_anno_lst, mandatory_tx_sets)
 
-    def init_anno(self, genome_anno_lst):
+    def __init_anno__(self, genome_anno_lst, mandatory_tx_sets=[]):
         # make sure that the genome_anno ids are unique
         counter = 0
-        for ga in genome_anno_lst:
-            if ga.id in self.anno.keys():
-                counter += 1
-                new_id = "duplicate.anno.{}".format(counter)
-                self.duplicates.update({new_id : ga.id})
-                ga.change_id(new_id)
-            self.anno.update({ga.id : ga})
+        mandatory = False
+        for lst in [genome_anno_lst, mandatory_tx_sets]:
+            for ga in lst:
+                if ga.id in self.anno.keys():
+                    counter += 1
+                    new_id = "duplicate.anno.{}".format(counter)
+                    self.duplicates.update({new_id : ga.id})
+                    ga.change_id(new_id)
+                self.anno.update({ga.id : ga})
+                if mandatory:
+                    self.mandatory_anno_keys.append(ga.id)
+            mandatory = True
 
     def __tx_from_key__(self, key):
         """
@@ -126,8 +131,9 @@ class Graph:
         tx_start_end = {}
         # check for duplicate txs, list of ['start_end_strand']
         unique_tx_keys = {}
-
-        for k in self.anno.keys():
+        anno_keys = self.mandatory_anno_keys + [k for k in self.anno.keys() \
+            if k not in self.mandatory_anno_keys]
+        for k in anno_keys:
             for tx in self.anno[k].get_transcript_list():
                 if tx.chr not in tx_start_end.keys():
                     tx_start_end.update({tx.chr : []})
@@ -147,8 +153,9 @@ class Graph:
                 unique_tx_keys[tx.chr][unique_key].append(tx)
                 key = '{};{}'.format(tx.source_anno, \
                     tx.id)
+
                 self.nodes.update({key : Node(tx.source_anno, \
-                    tx.id)})
+                    tx.id, mandatory=k in self.mandatory_anno_keys)})
                 tx_start_end[tx.chr].append([key, tx.start, 0])
                 tx_start_end[tx.chr].append([key, tx.end, 1])
 
@@ -267,7 +274,6 @@ class Graph:
         n2 = self.nodes[edge.node2]
         for i in range(0,4):
             diff = n1.feature_vector[i] - n2.feature_vector[i]
-            #print(diff)
             if diff > self.para['e_{}'.format(i+1)]:
                 self.f[i].append(n2.id)
                 return n2.id
@@ -294,7 +300,7 @@ class Graph:
             for e_id in self.nodes[node_id].edge_to.values():
                 node_to_remove = self.edges[e_id].node_to_remove
                 if node_to_remove:
-                    if node_to_remove in result:
+                    if node_to_remove in result and not self.nodes[node_to_remove].mandatory:
                         result.remove(node_to_remove)
         return result
 
@@ -334,7 +340,7 @@ class Graph:
         for key in self.anno.keys():
             result.update({key : []})
         for node in self.decided_graph:
-            if self.nodes[node].evi_support:
+            if self.nodes[node].evi_support or self.nodes[node].mandatory:
                 anno_id, tx_id = node.split(';')
                 result[anno_id].append([tx_id, self.nodes[node].component_id])
 
