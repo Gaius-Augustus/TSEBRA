@@ -23,6 +23,7 @@ graph = None
 out = ''
 v = 0
 quiet = False
+abinitio = False
 parameter = {'intron_support' : 0, 'stasto_support' : 0, \
     'e_1' : 0, 'e_2' : 0, 'e_3' : 0, 'e_4' : 0}
 
@@ -87,7 +88,7 @@ def main():
     # create graph with an edge for each unique transcript
     # and an edge if two transcripts overlap
     # two transcripts overlap if they share at least 3 adjacent protein coding nucleotides
-    graph = Graph(anno[0], mandatory_tx_sets=anno[1], para=parameter, verbose=v)
+    graph = Graph(anno[0], mandatory_tx_sets=anno[1], para=parameter, verbose=v, abinitio=abinitio)
     if not quiet:
         sys.stderr.write('### BUILD OVERLAP GRAPH\n')
     graph.build()
@@ -141,7 +142,7 @@ def set_parameter(cfg_file):
                 parameter[line[0]] = float(line[1])
 
 def init(args):
-    global gtf, hintfiles, forced_gene_sets, threads, hint_source_weight, out, v, quiet
+    global gtf, hintfiles, forced_gene_sets, threads, hint_source_weight, out, v, abinitio, quiet
     if args.gtf:
         gtf = args.gtf.split(',')
     if args.hintfiles:
@@ -153,6 +154,8 @@ def init(args):
     else:
         cfg_file = os.path.dirname(os.path.realpath(__file__)) + '/../config/default.cfg'
     set_parameter(cfg_file)
+    if args.keep_abinitio:
+        abinitio = True
     if args.out:
         out = args.out
     if args.verbose:
@@ -169,7 +172,7 @@ def parseCmd():
     parser = argparse.ArgumentParser(description='TSEBRA: Transcript Selector for BRAKER\n\n' \
         + 'TSEBRA combines gene predictions by selecing ' \
         + 'transcripts based on their extrisic evidence support.')
-    parser.add_argument('-g', '--gtf', type=str, required=True,
+    parser.add_argument('-g', '--gtf', type=str, required=False,
         help='List (separated by commas) of gene prediciton files in gtf.\n' \
             + '(e.g. gene_pred1.gtf,gene_pred2.gtf,gene_pred3.gtf)')
     parser.add_argument('-f', '--forced_gene_sets', type=str, required=False,
@@ -185,6 +188,8 @@ def parseCmd():
         help='Outputfile for the combined gene prediciton in gtf.')
     parser.add_argument('-q', '--quiet', action='store_true',
         help='Quiet mode.')
+    parser.add_argument('--keep_abinitio', action='store_true',
+        help='Keep ab initio prediction for loci where no supported transcript is present.')
     parser.add_argument('-v', '--verbose', type=int,
         help='')
     return parser.parse_args()

@@ -50,7 +50,7 @@ class Graph:
     """
         Overlap graph that can detect and filter overlapping transcripts.
     """
-    def __init__(self, genome_anno_lst, para, mandatory_tx_sets=[], verbose=0):
+    def __init__(self, genome_anno_lst, para, mandatory_tx_sets=[], verbose=0, abinitio=False):
         """
             Args:
                 genome_anno_lst (list(Anno)): List of Anno class objects
@@ -81,6 +81,7 @@ class Graph:
         self.f = [[],[],[],[]]
         self.ties = 0
 
+        self.abinitio=abinitio
         # parameters for decision rule
         self.para = para
 
@@ -340,7 +341,8 @@ class Graph:
         for key in self.anno.keys():
             result.update({key : []})
         for node in self.decided_graph:
-            if self.nodes[node].evi_support or self.nodes[node].mandatory:
+            if self.nodes[node].evi_support or self.nodes[node].mandatory \
+                or (self.abinitio and self.nodes[node].feature_vector[0]==0 and node.split(';')[0] == 'anno1'):
                 anno_id, tx_id = node.split(';')
                 result[anno_id].append([tx_id, self.nodes[node].component_id])
 
