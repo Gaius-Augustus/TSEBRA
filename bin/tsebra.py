@@ -19,8 +19,8 @@ graph = None
 out = ''
 v = 0
 quiet = False
-parameter = {'intron_support' : 0, 'stasto_support' : 0, \
-    'e_1' : 0, 'e_2' : 0, 'e_3' : 0, 'e_4' : 0}
+parameter = {'intron_support' : 0, 'stop_support' : 0, 'start_support' : 0, \
+    'e_1' : 0, 'e_2' : 0, 'e_3' : 0, 'e_4' : 0, 'e_5' : 0, 'e_6' : 0}
 
 def main():
     """

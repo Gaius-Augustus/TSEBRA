@@ -40,7 +40,7 @@ class Node_features:
                 evi (Evidence): Evidence class object containing all extrinsic evidence.
         """
         cds_len = 0
-        for type in ['intron', 'start_codon', 'stop_codon']:
+        for type in ['intron', 'start_codon', 'stop_codon']:            
             for line in tx.transcript_lines[type]:
                 hint = evi.get_hint(line[0], line[3], line[4], line[2], \
                     line[6])
@@ -57,9 +57,11 @@ class Node_features:
                 (list(float)): List of feature scores.
         """
         return [self.relative_support(['intron'], self.numb_introns), \
-                self.relative_support(['start_codon', 'stop_codon'], 2.0), \
+                self.relative_support(['stop_codon'], 1.0), \
+                self.relative_support(['start_codon'], 1.0), \
                 self.absolute_support(['intron']), \
-                self.absolute_support(['start_codon', 'stop_codon'])]
+                self.absolute_support(['stop_codon']),
+                self.absolute_support(['start_codon'])]
 
     def relative_support(self, gene_feature_types, abs_numb):
         """

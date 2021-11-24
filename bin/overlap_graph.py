@@ -76,10 +76,6 @@ class Graph:
         # dict of duplicate genome annotation ids to new ids
         self.duplicates = {}
 
-        # variables for verbose mode
-        self.v = verbose
-        self.f = [[],[],[],[]]
-        self.ties = 0
 
         # parameters for decision rule
         self.para = para
@@ -119,14 +115,12 @@ class Graph:
             Two nodes have an edge if their transcripts overlap.
             Two transcripts overlap if they share at least 3 adjacent protein coding nucleotides.
         """
-
         # tx_start_end[chr] = [tx_id, coord, id for start or end]
         # for every tx one element for start and one for end
         # this dict is used to check for overlapping transcripts
         tx_start_end = {}
         # check for duplicate txs, list of ['start_end_strand']
         unique_tx_keys = {}
-
         for k in self.anno.keys():
             for tx in self.anno[k].get_transcript_list():
                 if tx.chr not in tx_start_end.keys():
@@ -135,22 +129,53 @@ class Graph:
                 unique_key = '{}_{}_{}'.format(tx.start, tx.end, tx.strand)
                 if unique_key in unique_tx_keys[tx.chr].keys():
                     check = False
-                    coords = tx.get_cds_coords()
+                    coords = {}
+                    tx_dup = None
+                    for type in ["CDS", "3'-UTR", "5'-UTR"]:
+                        coords.update({type : tx.get_type_coords(type)})
+                        #
+                        #coords_temp = tx.get_type_coords(type)
+                        #for c in coords_temp.values():
+                            #coords[type] += c
+                        #coords[type].sort(key=lambda c: (c[0],c[1]))
                     for t in unique_tx_keys[tx.chr][unique_key]:
-                        if coords == t.get_cds_coords():
+                        if t.utr and tx.utr:
+                            type_list = ["CDS", "3'-UTR", "5'-UTR"]
+                        else:
+                            type_list = ['CDS']
+                        check = False
+                        for type in type_list:
+                            #coords_t = []
+                            #coords_temp = t.get_type_coords(type)
+                            #for c in coords_temp.values():
+                                #coords_t += c
+                            #coords_t.sort(key=lambda c: (c[0],c[1]))
+                            #if not coords[type] == coords_t:
+                            if not coords[type] == t.get_type_coords(type):
+                                check = False
+                                break
                             check = True
+                        if check:
+                            tx_dup = t
                             break
                     if check:
-                        continue
+                        if tx.utr and not tx_dup.utr:
+                            unique_tx_keys[tx.chr][unique_key].remove(tx_dup)
+                        else:
+                            continue
                 else:
                     unique_tx_keys[tx.chr].update({unique_key : []})
                 unique_tx_keys[tx.chr][unique_key].append(tx)
-                key = '{};{}'.format(tx.source_anno, \
-                    tx.id)
-                self.nodes.update({key : Node(tx.source_anno, \
-                    tx.id)})
-                tx_start_end[tx.chr].append([key, tx.start, 0])
-                tx_start_end[tx.chr].append([key, tx.end, 1])
+
+        for chr in unique_tx_keys.keys():
+            for tx_list in unique_tx_keys[chr].values():
+                for tx in tx_list:
+                    key = '{};{}'.format(tx.source_anno, \
+                        tx.id)
+                    self.nodes.update({key : Node(tx.source_anno, \
+                        tx.id)})
+                    tx_start_end[tx.chr].append([key, tx.start, 0])
+                    tx_start_end[tx.chr].append([key, tx.end, 1])
 
         # detect overlapping nodes
         edge_count = 0
@@ -186,9 +211,9 @@ class Graph:
         """
         if not tx1.strand == tx2.strand:
             return False
-        tx1_coords = tx1.get_cds_coords()
-        tx2_coords = tx2.get_cds_coords()
-        for phase in ['0', '1', '2']:
+        tx1_coords = tx1.get_type_coords('CDS')
+        tx2_coords = tx2.get_type_coords('CDS')
+        for phase in ['0', '1', '2', '.']:
             coords = []
             coords += tx1_coords[phase]
             coords += tx2_coords[phase]
@@ -250,7 +275,8 @@ class Graph:
             new_node_feature = Node_features(tx, evi, self.para)
             self.nodes[key].feature_vector = new_node_feature.get_features()
             if self.nodes[key].feature_vector[0] >= self.para['intron_support'] \
-                or self.nodes[key].feature_vector[1] >= self.para['stasto_support']:
+                or self.nodes[key].feature_vector[1] >= self.para['stop_support'] \
+                or self.nodes[key].feature_vector[1] >= self.para['start_support']:
                 self.nodes[key].evi_support = True
 
     def decide_edge(self, edge):
@@ -265,14 +291,11 @@ class Graph:
         """
         n1 = self.nodes[edge.node1]
         n2 = self.nodes[edge.node2]
-        for i in range(0,4):
+        for i in range(0,6):
             diff = n1.feature_vector[i] - n2.feature_vector[i]
-            #print(diff)
             if diff > self.para['e_{}'.format(i+1)]:
-                self.f[i].append(n2.id)
                 return n2.id
             elif diff < (-1 * self.para['e_{}'.format(i+1)]):
-                self.f[i].append(n1.id)
                 return n1.id
         return None
 
@@ -338,18 +361,5 @@ class Graph:
                 anno_id, tx_id = node.split(';')
                 result[anno_id].append([tx_id, self.nodes[node].component_id])
 
-        if self.v > 0:
-            print('NODES: {}'.format(len(self.nodes.keys())))
-            f = list(map(set, self.f))
-            print('f1: {}'.format(len(f[0])))
-            u = f[0]
-            print('f2: {}'.format(len(f[1])))
-            print('f2/f1: {}'.format(len(f[1].difference(u))))
-            u = u.union(f[1])
-            print('f3: {}'.format(len(f[2])))
-            print('f3/f2/f1: {}'.format(len(f[2].difference(u))))
-            u = u.union(f[2])
-            print('f4: {}'.format(len(f[3])))
-            print('f4/f3/f2/f1: {}'.format(len(f[3].difference(u))))
 
         return result
