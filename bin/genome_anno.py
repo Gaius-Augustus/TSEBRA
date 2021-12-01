@@ -34,6 +34,10 @@ class Transcript:
         self.source_anno = source_anno
         self.start = -1
         self.end = -1
+        self.utr_start = -1
+        self.utr_end = -1
+        # number of bases in UTR
+        self.utr_len = 0
         self.strand = strand
         self.source_method = ''
         self.utr = False
@@ -112,6 +116,24 @@ class Transcript:
                 coords = self.get_type_coords(type)
             self.end = max([c[1] for coord in coords.values() for c in coord])
 
+        self.utr_len = 0
+        if "3'-UTR" in self.transcript_lines.keys():
+            self.utr=True
+            self.utr_len += sum([i[4] - i[3] + 1 for i in self.transcript_lines["3'-UTR"]])
+            utr_start = min([i[3] for i in self.transcript_lines["3'-UTR"]])
+        else:
+            utr_start = self.start
+        if "5'-UTR" in self.transcript_lines.keys():
+            self.utr=True
+            self.utr += sum([i[4] - i[3] + 1 for i in self.transcript_lines["5'-UTR"]])
+            utr_end = max([i[4] for i in self.transcript_lines["5'-UTR"]])
+        else:
+            utr_end = self.end
+        if self.utr:
+            self.utr_start = utr_start
+            self.utr_end = utr_end
+
+
     def add_missing_lines(self):
         """
             Add transcript, intron, CDS, exon coordinates if they were not
@@ -131,8 +153,6 @@ class Transcript:
         self.find_transcript()
         # add start/stop codon line
         self.find_start_stop_codon()
-        if "3'-UTR" in self.transcript_lines.keys() or "5'-UTR" in self.transcript_lines.keys():
-            self.utr=True
         return True
 
     def check_cds_exons(self):
@@ -150,26 +170,25 @@ class Transcript:
         """
         if not 'intron' in self.transcript_lines.keys():
             self.transcript_lines.update({'intron' : []})
-            key = ''
+            keys = ["3'-UTR"]
             if 'CDS' in self.transcript_lines.keys():
-                key = 'CDS'
+                keys.append('CDS')
             elif 'exon' in self.transcript_lines.keys():
-                key = 'exon'
-            if key:
-                exon_lst = []
-                for line in self.transcript_lines[key]:
-                    exon_lst.append(line)
-                exon_lst = sorted(exon_lst, key=lambda e:e[0])
-                for i in range(1, len(exon_lst)):
-                    intron = []
-                    intron += exon_lst[i][0:2]
-                    intron.append('intron')
-                    intron.append(exon_lst[i-1][4] + 1)
-                    intron.append(exon_lst[i][3] - 1)
-                    intron += exon_lst[i][5:8]
-                    intron.append("gene_id \"{}\"; transcript_id \"{}\";".format(\
-                    self.gene_id, self.id))
+                keys.append('exon')
+            keys.append("5'-UTR")
+            exon_lst = []
+            for key in keys:
+                for coords in self.get_type_coords(key).values():
+                    exon_lst += coords
+            exon_lst = sorted(list(exon_lst), key=lambda e:e[0])
+            for i in range(1, len(exon_lst)):
+                intron = [self.chr, self.source_method, 'intron', exon_lst[i-1][1] + 1, \
+                exon_lst[i][0] - 1, '.', self.strand, '.', "gene_id \"{}\"; transcript_id \"{}\";".format(\
+                self.gene_id, self.id)]
+                if intron[4] - intron[3] > 0:
                     self.transcript_lines['intron'].append(intron)
+        if self.id == 'PB.27149.4':
+            print (self.transcript_lines['intron'])
 
     def find_transcript(self):
         """

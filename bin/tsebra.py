@@ -58,7 +58,7 @@ def main():
         anno[-1].addGtf()
         anno[-1].norm_tx_format()
         c += 1
-
+        
     # read hintfiles
     evi = Evidence()
     for h in hintfiles:

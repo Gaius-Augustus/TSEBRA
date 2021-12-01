@@ -8,6 +8,7 @@
 # Compare nodes with the 'decision rule'.
 # ==============================================================
 from features import Node_features
+import math
 
 class Edge:
     """
@@ -43,7 +44,7 @@ class Node:
         # dict of edge_ids of edges that are incident
         # self.edge_to[id of incident Node] = edge_id
         self.edge_to = {}
-        self.feature_vector = [None] * 4
+        self.feature_vector = [None] * 6
         self.evi_support = False
 
 class Graph:
@@ -129,39 +130,17 @@ class Graph:
                 unique_key = '{}_{}_{}'.format(tx.start, tx.end, tx.strand)
                 if unique_key in unique_tx_keys[tx.chr].keys():
                     check = False
-                    coords = {}
-                    tx_dup = None
-                    for type in ["CDS", "3'-UTR", "5'-UTR"]:
-                        coords.update({type : tx.get_type_coords(type)})
-                        #
-                        #coords_temp = tx.get_type_coords(type)
-                        #for c in coords_temp.values():
-                            #coords[type] += c
-                        #coords[type].sort(key=lambda c: (c[0],c[1]))
+                    coords = tx.get_type_coords('CDS')
                     for t in unique_tx_keys[tx.chr][unique_key]:
-                        if t.utr and tx.utr:
-                            type_list = ["CDS", "3'-UTR", "5'-UTR"]
-                        else:
-                            type_list = ['CDS']
-                        check = False
-                        for type in type_list:
-                            #coords_t = []
-                            #coords_temp = t.get_type_coords(type)
-                            #for c in coords_temp.values():
-                                #coords_t += c
-                            #coords_t.sort(key=lambda c: (c[0],c[1]))
-                            #if not coords[type] == coords_t:
-                            if not coords[type] == t.get_type_coords(type):
-                                check = False
+                        if coords == t.get_type_coords('CDS'):
+                            if tx.utr and not t.utr:
+                                unique_tx_keys[tx.chr][unique_key].remove(t)
+                            elif tx.utr and t.utr and tx.utr_len  > t.utr_len:
+                                unique_tx_keys[tx.chr][unique_key].remove(t)
+                            else:
+                                check = True
                                 break
-                            check = True
-                        if check:
-                            tx_dup = t
-                            break
                     if check:
-                        if tx.utr and not tx_dup.utr:
-                            unique_tx_keys[tx.chr][unique_key].remove(tx_dup)
-                        else:
                             continue
                 else:
                     unique_tx_keys[tx.chr].update({unique_key : []})
@@ -270,6 +249,7 @@ class Graph:
             Args:
                 evi (Evidence): Evidence class object with all hints from any source.
         """
+        ids = ['PB.27085.4', 'g51570.t1']
         for key in self.nodes.keys():
             tx = self.__tx_from_key__(key)
             new_node_feature = Node_features(tx, evi, self.para)
@@ -278,6 +258,9 @@ class Graph:
                 or self.nodes[key].feature_vector[1] >= self.para['stop_support'] \
                 or self.nodes[key].feature_vector[1] >= self.para['start_support']:
                 self.nodes[key].evi_support = True
+            id = 'PB.27085'
+            if id in tx.id:
+                print(self.nodes[key].feature_vector, tx.id)
 
     def decide_edge(self, edge):
         """
@@ -293,10 +276,22 @@ class Graph:
         n2 = self.nodes[edge.node2]
         for i in range(0,6):
             diff = n1.feature_vector[i] - n2.feature_vector[i]
+            if i > 2:
+                diff = math.sqrt(abs(n1.feature_vector[i]**2 - n2.feature_vector[i]**2))
+
             if diff > self.para['e_{}'.format(i+1)]:
+                if n1.feature_vector[i] > n2.feature_vector[i]:
+                    return n2.id
+                else:
+                    return n1.id
+        """
+        for i in range(3,6):
+            diff = n1.feature_vector[i] - n2.feature_vector[i]
+            if diff / (n2.feature_vector[i] + 0.1) > self.para['e_{}'.format(i+1)]:
                 return n2.id
-            elif diff < (-1 * self.para['e_{}'.format(i+1)]):
+            elif diff / (n1.feature_vector[i] + 0.1) < (-1 * self.para['e_{}'.format(i+1)]):
                 return n1.id
+        """
         return None
 
     def decide_component(self, component):
