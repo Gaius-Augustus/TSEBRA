@@ -187,8 +187,6 @@ class Transcript:
                 self.gene_id, self.id)]
                 if intron[4] - intron[3] > 0:
                     self.transcript_lines['intron'].append(intron)
-        if self.id == 'PB.27149.4':
-            print (self.transcript_lines['intron'])
 
     def find_transcript(self):
         """

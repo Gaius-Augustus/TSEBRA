@@ -249,7 +249,6 @@ class Graph:
             Args:
                 evi (Evidence): Evidence class object with all hints from any source.
         """
-        ids = ['PB.27085.4', 'g51570.t1']
         for key in self.nodes.keys():
             tx = self.__tx_from_key__(key)
             new_node_feature = Node_features(tx, evi, self.para)
@@ -257,10 +256,7 @@ class Graph:
             if self.nodes[key].feature_vector[0] >= self.para['intron_support'] \
                 or self.nodes[key].feature_vector[1] >= self.para['stop_support'] \
                 or self.nodes[key].feature_vector[1] >= self.para['start_support']:
-                self.nodes[key].evi_support = True
-            id = 'PB.27085'
-            if id in tx.id:
-                print(self.nodes[key].feature_vector, tx.id)
+                self.nodes[key].evi_support = True           
 
     def decide_edge(self, edge):
         """
@@ -284,14 +280,7 @@ class Graph:
                     return n2.id
                 else:
                     return n1.id
-        """
-        for i in range(3,6):
-            diff = n1.feature_vector[i] - n2.feature_vector[i]
-            if diff / (n2.feature_vector[i] + 0.1) > self.para['e_{}'.format(i+1)]:
-                return n2.id
-            elif diff / (n1.feature_vector[i] + 0.1) < (-1 * self.para['e_{}'.format(i+1)]):
-                return n1.id
-        """
+
         return None
 
     def decide_component(self, component):
