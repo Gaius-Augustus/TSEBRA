@@ -46,12 +46,13 @@ class Node:
         self.edge_to = {}
         self.feature_vector = [None] * 6
         self.evi_support = False
+        self.number_predicted = 0
 
 class Graph:
     """
         Overlap graph that can detect and filter overlapping transcripts.
     """
-    def __init__(self, genome_anno_lst, para, verbose=0):
+    def __init__(self, genome_anno_lst, para, filter_short=False, verbose=0):
         """
             Args:
                 genome_anno_lst (list(Anno)): List of Anno class objects
@@ -76,6 +77,8 @@ class Graph:
 
         # dict of duplicate genome annotation ids to new ids
         self.duplicates = {}
+
+        self.filter_short = filter_short
 
 
         # parameters for decision rule
@@ -122,37 +125,45 @@ class Graph:
         tx_start_end = {}
         # check for duplicate txs, list of ['start_end_strand']
         unique_tx_keys = {}
+        numb_dup = {}
         for k in self.anno.keys():
             for tx in self.anno[k].get_transcript_list():
                 if tx.chr not in tx_start_end.keys():
                     tx_start_end.update({tx.chr : []})
                     unique_tx_keys.update({tx.chr : {}})
                 unique_key = '{}_{}_{}'.format(tx.start, tx.end, tx.strand)
+                dup = {tx.source_method}
                 if unique_key in unique_tx_keys[tx.chr].keys():
                     check = False
                     coords = tx.get_type_coords('CDS')
+
+
                     for t in unique_tx_keys[tx.chr][unique_key]:
                         if coords == t.get_type_coords('CDS'):
                             if tx.utr and not t.utr:
                                 unique_tx_keys[tx.chr][unique_key].remove(t)
+                                dup.add(t.source_method)
                             elif tx.utr and t.utr and tx.utr_len  > t.utr_len:
                                 unique_tx_keys[tx.chr][unique_key].remove(t)
+                                dup.add(t.source_method)
                             else:
+                                numb_dup[f"{t.source_anno};{t.id}"].add(tx.source_method)
                                 check = True
                                 break
                     if check:
                             continue
                 else:
                     unique_tx_keys[tx.chr].update({unique_key : []})
+                numb_dup.update({f"{tx.source_anno};{tx.id}" : dup})
                 unique_tx_keys[tx.chr][unique_key].append(tx)
 
         for chr in unique_tx_keys.keys():
             for tx_list in unique_tx_keys[chr].values():
                 for tx in tx_list:
-                    key = '{};{}'.format(tx.source_anno, \
-                        tx.id)
+                    key = f"{tx.source_anno};{tx.id}"
                     self.nodes.update({key : Node(tx.source_anno, \
                         tx.id)})
+                    self.nodes[key].number_predicted = len(numb_dup[key])
                     tx_start_end[tx.chr].append([key, tx.start, 0])
                     tx_start_end[tx.chr].append([key, tx.end, 1])
 
@@ -170,7 +181,7 @@ class Graph:
                         tx1 = self.__tx_from_key__(interval[0])
                         tx2 = self.__tx_from_key__(match)
                         if self.compare_tx_cds(tx1, tx2):
-                            new_edge_key = 'e{}'.format(edge_count)
+                            new_edge_key = f"e{edge_count}"
                             edge_count += 1
                             self.edges.update({new_edge_key : Edge(interval[0], match)})
                             self.nodes[interval[0]].edge_to.update({match : new_edge_key})
@@ -249,18 +260,25 @@ class Graph:
             Args:
                 evi (Evidence): Evidence class object with all hints from any source.
         """
-        ids = ['PB.27085.4', 'g51570.t1']
         for key in self.nodes.keys():
             tx = self.__tx_from_key__(key)
             new_node_feature = Node_features(tx, evi, self.para)
             self.nodes[key].feature_vector = new_node_feature.get_features()
-            if self.nodes[key].feature_vector[0] >= self.para['intron_support'] \
+            numb_intron = len(self.__tx_from_key__(key).transcript_lines['intron'])
+            if self.nodes[key].feature_vector[0] >= self.para['intron_support']  \
                 or self.nodes[key].feature_vector[1] >= self.para['stop_support'] \
-                or self.nodes[key].feature_vector[1] >= self.para['start_support']:
+                or self.nodes[key].feature_vector[2] >= self.para['start_support']:
                 self.nodes[key].evi_support = True
-            id = 'PB.27085'
-            if id in tx.id:
-                print(self.nodes[key].feature_vector, tx.id)
+            elif 'long_reads' in tx.source_anno and self.nodes[key].feature_vector[0] == 0 and not self.filter_short:
+                self.nodes[key].evi_support = True
+            if self.filter_short:
+                if numb_intron <= 0 and self.nodes[key].feature_vector[1] == 0 and self.nodes[key].feature_vector[2] == 0:# and tx.source_anno == 'anno1':
+                    self.nodes[key].evi_support = False
+                if 'long_reads' in tx.source_anno and tx.cds_len <= 300:
+                    self.nodes[key].evi_support = False
+                if self.nodes[key].number_predicted > 1:
+                    self.nodes[key].evi_support = True
+
 
     def decide_edge(self, edge):
         """
@@ -274,7 +292,26 @@ class Graph:
         """
         n1 = self.nodes[edge.node1]
         n2 = self.nodes[edge.node2]
-        for i in range(0,6):
+
+
+        if not n1.evi_support:
+            return n1.id
+        if not n2.evi_support:
+            return n2.id
+
+        tx1 = self.__tx_from_key__(n1.id)
+        tx2 = self.__tx_from_key__(n2.id)
+        j = 0
+        if self.filter_short:
+            if n1.number_predicted > n2.number_predicted:
+                return n2.id
+            if n1.number_predicted < n2.number_predicted:
+                return n1.id
+
+        if len(tx1.transcript_lines['CDS']) == 1 or len(tx2.transcript_lines['CDS']) == 1:
+            j = 1
+
+        for i in range(j,6):
             diff = n1.feature_vector[i] - n2.feature_vector[i]
             if i > 2:
                 diff = math.sqrt(abs(n1.feature_vector[i]**2 - n2.feature_vector[i]**2))
@@ -284,14 +321,6 @@ class Graph:
                     return n2.id
                 else:
                     return n1.id
-        """
-        for i in range(3,6):
-            diff = n1.feature_vector[i] - n2.feature_vector[i]
-            if diff / (n2.feature_vector[i] + 0.1) > self.para['e_{}'.format(i+1)]:
-                return n2.id
-            elif diff / (n1.feature_vector[i] + 0.1) < (-1 * self.para['e_{}'.format(i+1)]):
-                return n1.id
-        """
         return None
 
     def decide_component(self, component):

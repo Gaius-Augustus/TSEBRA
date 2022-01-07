@@ -13,12 +13,14 @@ class ConfigFileError(Exception):
     pass
 
 gtf = []
+long_reads = []
 anno = []
 hintfiles = []
 graph = None
 out = ''
 v = 0
 quiet = False
+filter = False
 parameter = {'intron_support' : 0, 'stop_support' : 0, 'start_support' : 0, \
     'e_1' : 0, 'e_2' : 0, 'e_3' : 0, 'e_4' : 0, 'e_5' : 0, 'e_6' : 0}
 
@@ -58,7 +60,15 @@ def main():
         anno[-1].addGtf()
         anno[-1].norm_tx_format()
         c += 1
-        
+    c = 1
+    for l in long_reads:
+        if not quiet:
+            sys.stderr.write('### READING LONG-READS: [{}]\n'.format(l))
+        anno.append(Anno(l, 'long_reads{}'.format(c)))
+        anno[-1].addGtf()
+        anno[-1].norm_tx_format()
+        c += 1
+
     # read hintfiles
     evi = Evidence()
     for h in hintfiles:
@@ -73,7 +83,7 @@ def main():
     # create graph with an edge for each unique transcript
     # and an edge if two transcripts overlap
     # two transcripts overlap if they share at least 3 adjacent protein coding nucleotides
-    graph = Graph(anno, para=parameter, verbose=v)
+    graph = Graph(anno, para=parameter, filter_short=filter, verbose=v)
     if not quiet:
         sys.stderr.write('### BUILD OVERLAP GRAPH\n')
     graph.build()
@@ -127,7 +137,7 @@ def set_parameter(cfg_file):
                 parameter[line[0]] = float(line[1])
 
 def init(args):
-    global gtf, hintfiles, threads, hint_source_weight, out, v, quiet
+    global gtf, hintfiles, threads, hint_source_weight, out, v, filter, long_reads, quiet
     if args.gtf:
         gtf = args.gtf.split(',')
     if args.hintfiles:
@@ -141,6 +151,10 @@ def init(args):
         out = args.out
     if args.verbose:
         v = args.verbose
+    if args.filter_short:
+        filter = args.filter_short
+    if args.long_reads:
+        long_reads = args.long_reads.split(',')
     if args.quiet:
         quiet = True
 
@@ -156,6 +170,9 @@ def parseCmd():
     parser.add_argument('-g', '--gtf', type=str, required=True,
         help='List (separated by commas) of gene prediciton files in gtf.\n' \
             + '(e.g. gene_pred1.gtf,gene_pred2.gtf,gene_pred3.gtf)')
+    parser.add_argument('-l', '--long_reads', type=str, required=True,
+        help='List (separated by commas) of transcript sets inferred from long-reads.\n' \
+            + '(e.g. long_read1.gtf,long_read2.gtf,long_read3.gtf)')
     parser.add_argument('-e', '--hintfiles', type=str, required=True,
         help='List (separated by commas) of files containing extrinsic evidence in gff.\n' \
             + '(e.g. hintsfile1.gff,hintsfile2.gtf,3.gtf)')
@@ -166,6 +183,8 @@ def parseCmd():
         help='Outputfile for the combined gene prediciton in gtf.')
     parser.add_argument('-q', '--quiet', action='store_true',
         help='Quiet mode.')
+    parser.add_argument('-f', '--filter_short', action='store_true',
+        help='Have a strict filter for short transcripts.')
     parser.add_argument('-v', '--verbose', type=int,
         help='')
     return parser.parse_args()

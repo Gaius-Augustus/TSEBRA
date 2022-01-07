@@ -38,6 +38,7 @@ class Transcript:
         self.utr_end = -1
         # number of bases in UTR
         self.utr_len = 0
+        self.cds_len = 0
         self.strand = strand
         self.source_method = ''
         self.utr = False
@@ -133,6 +134,8 @@ class Transcript:
             self.utr_start = utr_start
             self.utr_end = utr_end
 
+        if 'CDS' in self.transcript_lines.keys():
+            self.cds_len = sum([i[4] - i[3] + 1 for i in self.transcript_lines["CDS"]])
 
     def add_missing_lines(self):
         """
