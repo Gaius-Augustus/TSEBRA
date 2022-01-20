@@ -30,6 +30,6 @@ o=$d/braker1+2.gtf
 
 echo "*** Running TSEBRA ***\n"
 
-$c/../bin/tsebra.py -g $b1,$b2 -c $c/../config/default.cfg -e $h1,$h2 -o $o
+$c/../bin/tsebra.py -g $b1,$b2 -e $h1,$h2 -o $o
 
 echo "\n*** Finished. Result at: $o ***\n"

@@ -8,6 +8,7 @@
 # Compare nodes with the 'decision rule'.
 # ==============================================================
 from features import Node_features
+import numpy as np
 
 class Edge:
     """
@@ -43,14 +44,30 @@ class Node:
         # dict of edge_ids of edges that are incident
         # self.edge_to[id of incident Node] = edge_id
         self.edge_to = {}
-        self.feature_vector = [None] * 4
+        # feature vector
+        # features in order:
+        # numb introns
+        # numb of gene sets in which tx of node is included
+        # len CDS
+        # len UTR
+        # len introns
+        # rel intron hint support
+        # rel intron hint support for 'E'
+        # rel intron hint support for 'P'
+        # rel intron hint support for 'C'
+        # rel intron hint support for 'M'
+        # abs intron hint support for 'E'
+        # abs intron hint support for 'P'
+        # abs intron hint support for 'C'
+        # abs intron hint support for 'M'
+        self.feature_vector = np.zeros(30)
         self.evi_support = False
 
 class Graph:
     """
         Overlap graph that can detect and filter overlapping transcripts.
     """
-    def __init__(self, genome_anno_lst, para, verbose=0):
+    def __init__(self, genome_anno_lst, verbose=0):
         """
             Args:
                 genome_anno_lst (list(Anno)): List of Anno class objects
@@ -81,8 +98,6 @@ class Graph:
         self.f = [[],[],[],[]]
         self.ties = 0
 
-        # parameters for decision rule
-        self.para = para
 
         # init annotations, check for duplicate ids
         self.init_anno(genome_anno_lst)
@@ -119,38 +134,51 @@ class Graph:
             Two nodes have an edge if their transcripts overlap.
             Two transcripts overlap if they share at least 3 adjacent protein coding nucleotides.
         """
-
         # tx_start_end[chr] = [tx_id, coord, id for start or end]
         # for every tx one element for start and one for end
         # this dict is used to check for overlapping transcripts
         tx_start_end = {}
         # check for duplicate txs, list of ['start_end_strand']
         unique_tx_keys = {}
-
+        numb_dup = {}
         for k in self.anno.keys():
             for tx in self.anno[k].get_transcript_list():
                 if tx.chr not in tx_start_end.keys():
                     tx_start_end.update({tx.chr : []})
                     unique_tx_keys.update({tx.chr : {}})
-                unique_key = '{}_{}_{}'.format(tx.start, tx.end, tx.strand)
+                unique_key = f"{tx.start}_{tx.end}_{tx.strand}"
+                dup = {tx.source_method}
                 if unique_key in unique_tx_keys[tx.chr].keys():
                     check = False
-                    coords = tx.get_cds_coords()
+                    coords = tx.get_type_coords('CDS')
                     for t in unique_tx_keys[tx.chr][unique_key]:
-                        if coords == t.get_cds_coords():
-                            check = True
-                            break
+                        if coords == t.get_type_coords('CDS'):
+                            if tx.utr and not t.utr:
+                                unique_tx_keys[tx.chr][unique_key].remove(t)
+                                dup.add(t.source_method)
+                            elif tx.utr and t.utr and tx.utr_len  > t.utr_len:
+                                unique_tx_keys[tx.chr][unique_key].remove(t)
+                                dup.add(t.source_method)
+                            else:
+                                numb_dup[f"{t.source_anno};{t.id}"].add(tx.source_method)
+                                check = True
+                                break
                     if check:
-                        continue
+                            continue
                 else:
                     unique_tx_keys[tx.chr].update({unique_key : []})
+                numb_dup.update({f"{tx.source_anno};{tx.id}" : dup})
                 unique_tx_keys[tx.chr][unique_key].append(tx)
-                key = '{};{}'.format(tx.source_anno, \
-                    tx.id)
-                self.nodes.update({key : Node(tx.source_anno, \
-                    tx.id)})
-                tx_start_end[tx.chr].append([key, tx.start, 0])
-                tx_start_end[tx.chr].append([key, tx.end, 1])
+
+        for chr in unique_tx_keys.keys():
+            for tx_list in unique_tx_keys[chr].values():
+                for tx in tx_list:
+                    key = f"{tx.source_anno};{tx.id}"
+                    self.nodes.update({key : Node(tx.source_anno, \
+                        tx.id)})
+                    self.nodes[key].feature_vector[1] = len(numb_dup[key])
+                    tx_start_end[tx.chr].append([key, tx.start, 0])
+                    tx_start_end[tx.chr].append([key, tx.end, 1])
 
         # detect overlapping nodes
         edge_count = 0
@@ -166,7 +194,7 @@ class Graph:
                         tx1 = self.__tx_from_key__(interval[0])
                         tx2 = self.__tx_from_key__(match)
                         if self.compare_tx_cds(tx1, tx2):
-                            new_edge_key = 'e{}'.format(edge_count)
+                            new_edge_key = f"e{edge_count}"
                             edge_count += 1
                             self.edges.update({new_edge_key : Edge(interval[0], match)})
                             self.nodes[interval[0]].edge_to.update({match : new_edge_key})
@@ -186,9 +214,9 @@ class Graph:
         """
         if not tx1.strand == tx2.strand:
             return False
-        tx1_coords = tx1.get_cds_coords()
-        tx2_coords = tx2.get_cds_coords()
-        for phase in ['0', '1', '2']:
+        tx1_coords = tx1.get_type_coords('CDS')
+        tx2_coords = tx2.get_type_coords('CDS')
+        for phase in ['0', '1', '2', '.']:
             coords = []
             coords += tx1_coords[phase]
             coords += tx2_coords[phase]
@@ -245,13 +273,37 @@ class Graph:
             Args:
                 evi (Evidence): Evidence class object with all hints from any source.
         """
-        for key in self.nodes.keys():
-            tx = self.__tx_from_key__(key)
-            new_node_feature = Node_features(tx, evi, self.para)
-            self.nodes[key].feature_vector = new_node_feature.get_features()
-            if self.nodes[key].feature_vector[0] >= self.para['intron_support'] \
-                or self.nodes[key].feature_vector[1] >= self.para['stasto_support']:
-                self.nodes[key].evi_support = True
+        for node_key in self.nodes.keys():
+            tx = self.__tx_from_key__(node_key)
+            self.nodes[node_key].feature_vector[0] = len(tx.transcript_lines['intron'])
+            self.nodes[node_key].feature_vector[2] = tx.cds_len
+            self.nodes[node_key].feature_vector[3] = tx.utr_len
+            self.nodes[node_key].feature_vector[4] = tx.end - tx.start + 1 - \
+                                                tx.cds_len - tx.utr_len
+
+
+            evi_list = {'intron' : {'E' : [], 'P': [], 'C': [], 'M': []}, \
+                'start_codon' : {'E' : [], 'P': [], 'C': [], 'M': []}, \
+                'stop_codon': {'E' : [], 'P': [], 'C': [], 'M': []}}
+            for type in ['intron', 'start_codon', 'stop_codon']:
+                for line in tx.transcript_lines[type]:
+                    hint = evi.get_hint(line[0], line[3], line[4], line[2], \
+                        line[6])
+                    if hint:
+                        for key in hint.keys():
+                            if key not in evi_list[type].keys():
+                                evi_list[type].update({key : []})
+                            evi_list[type][key].append(hint[key])
+            for type, i, abs_numb in zip(['intron', 'start_codon', 'stop_codon'], \
+                range(3), [self.nodes[node_key].feature_vector[0], 1, 1]) :
+                for evi_src, j in zip(['E', 'P', 'C', 'M'], range(4)):
+                    if abs_numb == 0:
+                        self.nodes[node_key].feature_vector[5 + i * 8 + j] = -1
+                    else:
+                        self.nodes[node_key].feature_vector[5 + i * 8 + j] = \
+                            len(evi_list[type][evi_src])/abs_numb
+                    self.nodes[node_key].feature_vector[9 + i * 8 + j] = \
+                        sum(evi_list[type][evi_src])            
 
     def decide_edge(self, edge):
         """
@@ -268,10 +320,10 @@ class Graph:
         for i in range(0,4):
             diff = n1.feature_vector[i] - n2.feature_vector[i]
             #print(diff)
-            if diff > self.para['e_{}'.format(i+1)]:
+            if diff > 0:
                 self.f[i].append(n2.id)
                 return n2.id
-            elif diff < (-1 * self.para['e_{}'.format(i+1)]):
+            elif diff < 0:
                 self.f[i].append(n1.id)
                 return n1.id
         return None

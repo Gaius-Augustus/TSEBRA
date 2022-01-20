@@ -34,9 +34,14 @@ class Transcript:
         self.source_anno = source_anno
         self.start = -1
         self.end = -1
-        self.cds_coords = {}
+        self.utr_start = -1
+        self.utr_end = -1
+        # number of bases in UTR
+        self.utr_len = 0
+        self.cds_len = 0
         self.strand = strand
         self.source_method = ''
+        self.utr = False
 
     def add_line(self, line):
         """
@@ -57,10 +62,11 @@ class Transcript:
 
         line[3] = int(line[3])
         line[4] = int(line[4])
-        if self.start < 0 or line[3] < self.start:
-            self.start = line[3]
-        if self.end < 0 or line[4] > self.end:
-            self.end = line[4]
+        if 'cds' in line[2].lower():
+            if self.start < 0 or line[3] < self.start:
+                self.start = line[3]
+            if self.end < 0 or line[4] > self.end:
+                self.end = line[4]
         if self.gene_id == '' and not line[2] == 'transcript':
             self.gene_id = line[8].split('gene_id "')[1].split('";')[0]
         self.transcript_lines[line[2]].append(line)
@@ -68,7 +74,7 @@ class Transcript:
     def set_gene_id(self, new_gene_id):
         self.gene_id = new_gene_id
 
-    def get_cds_coords(self):
+    def get_type_coords(self, type):
         """
             Get the coordinates and reading frame of the coding regions
 
@@ -77,17 +83,59 @@ class Transcript:
                                         each each frame phase (0,1,2)
         """
         # returns dict of cds_coords[phase] = [start_coord, end_coord] of all CDS
-        if not self.cds_coords.keys():
-            self.cds_coords = {'0' : [], '1' : [], '2' : []}
-            if 'CDS' in self.transcript_lines.keys():
-                key  = 'CDS'
-            else:
-                key = 'exon'
-            for line in self.transcript_lines[key]:
-                self.cds_coords[line[7]].append([line[3], line[4]])
-            for k in self.cds_coords.keys():
-                self.cds_coords[k].sort(key=lambda c: (c[0],c[1]))
-        return self.cds_coords
+
+
+        coords = {'0' : [], '1' : [], '2' : [], '.' : []}
+        if type == 'CDS' and type not in self.transcript_lines.keys():
+            type = 'exon'
+        if type not in self.transcript_lines.keys():
+            return coords
+        for line in self.transcript_lines[type]:
+            coords[line[7]].append([line[3], line[4]])
+        for k in coords.keys():
+            coords[k].sort(key=lambda c: (c[0],c[1]))
+        return coords
+
+    def find_start_end(self):
+        coords = []
+        codons = ['start_codon', 'stop_codon']
+        if 'CDS' in self.transcript_lines.keys():
+            type = 'CDS'
+        else:
+            type = 'exon'
+        if self.strand == '-':
+            codons.reverse()
+        if codons[0] in self.transcript_lines.keys():
+            self.start = self.transcript_lines[codons[0]][0][3]
+        else:
+            coords = self.get_type_coords(type)
+            self.start = min([c[0] for coord in coords.values() for c in coord])
+        if codons[1] in self.transcript_lines.keys():
+            self.end = self.transcript_lines[codons[1]][0][4]
+        else:
+            if not coords:
+                coords = self.get_type_coords(type)
+            self.end = max([c[1] for coord in coords.values() for c in coord])
+
+        self.utr_len = 0
+        if "3'-UTR" in self.transcript_lines.keys():
+            self.utr=True
+            self.utr_len += sum([i[4] - i[3] + 1 for i in self.transcript_lines["3'-UTR"]])
+            utr_start = min([i[3] for i in self.transcript_lines["3'-UTR"]])
+        else:
+            utr_start = self.start
+        if "5'-UTR" in self.transcript_lines.keys():
+            self.utr=True
+            self.utr += sum([i[4] - i[3] + 1 for i in self.transcript_lines["5'-UTR"]])
+            utr_end = max([i[4] for i in self.transcript_lines["5'-UTR"]])
+        else:
+            utr_end = self.end
+        if self.utr:
+            self.utr_start = utr_start
+            self.utr_end = utr_end
+
+        if 'CDS' in self.transcript_lines.keys():
+            self.cds_len = sum([i[4] - i[3] + 1 for i in self.transcript_lines["CDS"]])
 
     def add_missing_lines(self):
         """
@@ -97,11 +145,13 @@ class Transcript:
             Returns:
                 (boolean): FALSE if no cds were found for the tx, TRUE otherwise
         """
-        # add intron lines
-        self.find_introns()
         # check if tx has cds or exon
         if not self.check_cds_exons():
             return False
+        # add intron lines
+        self.find_introns()
+        # add start, end coords of transcript
+        self.find_start_end()
         # add transcript line
         self.find_transcript()
         # add start/stop codon line
@@ -123,40 +173,35 @@ class Transcript:
         """
         if not 'intron' in self.transcript_lines.keys():
             self.transcript_lines.update({'intron' : []})
-            key = ''
+            keys = ["3'-UTR"]
             if 'CDS' in self.transcript_lines.keys():
-                key = 'CDS'
+                keys.append('CDS')
             elif 'exon' in self.transcript_lines.keys():
-                key = 'exon'
-            if key:
-                exon_lst = []
-                for line in self.transcript_lines[key]:
-                    exon_lst.append(line)
-                exon_lst = sorted(exon_lst, key=lambda e:e[0])
-                for i in range(1, len(exon_lst)):
-                    intron = []
-                    intron += exon_lst[i][0:2]
-                    intron.append('intron')
-                    intron.append(exon_lst[i-1][4] + 1)
-                    intron.append(exon_lst[i][3] - 1)
-                    intron += exon_lst[i][5:8]
-                    intron.append("gene_id \"{}\"; transcript_id \"{}\";".format(\
-                    self.gene_id, self.id))
+                keys.append('exon')
+            keys.append("5'-UTR")
+            exon_lst = []
+            for key in keys:
+                for coords in self.get_type_coords(key).values():
+                    exon_lst += coords
+            exon_lst = sorted(list(exon_lst), key=lambda e:e[0])
+            for i in range(1, len(exon_lst)):
+                intron = [self.chr, self.source_method, 'intron', exon_lst[i-1][1] + 1, \
+                exon_lst[i][0] - 1, '.', self.strand, '.', "gene_id \"{}\"; transcript_id \"{}\";".format(\
+                self.gene_id, self.id)]
+                if intron[4] - intron[3] > 0:
                     self.transcript_lines['intron'].append(intron)
+        if self.id == 'PB.27149.4':
+            print (self.transcript_lines['intron'])
 
     def find_transcript(self):
         """
             Add transcript lines.
         """
         if not 'transcript' in self.transcript_lines.keys():
-            for k in self.transcript_lines.keys():
-                for line in self.transcript_lines[k]:
-                    if line[3] < self.start or self.start < 0:
-                        self.start = line[3]
-                    if line[4] > self.end:
-                        self.end = line[4]
-            tx_line = [self.chr, line[1], 'transcript', self.start, self.end, \
-            '.', line[6], '.', self.id]
+            if self.start < 0  or self.end < 0:
+                self.find_start_end()
+            tx_line = [self.chr, self.source_method, 'transcript', self.start, self.end, \
+            '.', self.strand, '.', self.id]
             self.add_line(tx_line)
 
     def find_start_stop_codon(self):
@@ -168,7 +213,6 @@ class Transcript:
             self.transcript_lines.update({'start_codon' : []})
         if not 'stop_codon' in self.transcript_lines.keys():
             self.transcript_lines.update({'stop_codon' : []})
-
 
         key = ''
         if 'CDS' in self.transcript_lines.keys():
@@ -201,14 +245,13 @@ class Transcript:
                     fragmented_transcript = False
                 stop = line1
                 start = line2
-            if not 'start_codon' in self.transcript_lines.keys() and not fragmented_transcript:
+            if not self.transcript_lines['start_codon'] and not fragmented_transcript:
                 if not fragmented_transcript:
                     self.add_line(start)
                 else:
                     self.transcript_lines.update({'start_codon' : []})
-            if not 'stop_codon' in self.transcript_lines.keys():
+            if not self.transcript_lines['stop_codon']:
                 self.add_line(stop)
-
 
     def get_gtf(self, prefix=''):
         """

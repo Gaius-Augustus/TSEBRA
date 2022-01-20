@@ -8,19 +8,22 @@ import argparse
 import sys
 import os
 import csv
+import numpy as np
+import tensorflow as tf
+from tensorflow import keras
 
 class ConfigFileError(Exception):
     pass
 
 gtf = []
-anno = []
+gene_sets = []
 hintfiles = []
 graph = None
 out = ''
 v = 0
 quiet = False
-parameter = {'intron_support' : 0, 'stasto_support' : 0, \
-    'e_1' : 0, 'e_2' : 0, 'e_3' : 0, 'e_4' : 0}
+#parameter = {'intron_support' : 0, 'stasto_support' : 0, \
+    #'e_1' : 0, 'e_2' : 0, 'e_3' : 0, 'e_4' : 0}
 
 def main():
     """
@@ -41,7 +44,7 @@ def main():
     from overlap_graph import Graph
     from evidence import Evidence
 
-    global anno, graph, parameter
+    global gene_sets, graph#, parameter
 
     args = parseCmd()
     init(args)
@@ -54,10 +57,14 @@ def main():
     for g in gtf:
         if not quiet:
             sys.stderr.write('### READING GENE PREDICTION: [{}]\n'.format(g))
-        anno.append(Anno(g, 'anno{}'.format(c)))
-        anno[-1].addGtf()
-        anno[-1].norm_tx_format()
+        gene_sets.append(Anno(g, 'anno{}'.format(c)))
+        gene_sets[-1].addGtf()
+        gene_sets[-1].norm_tx_format()
         c += 1
+
+    anno = Anno(args.anno, 'reference')
+    anno.addGtf()
+    anno.norm_tx_format()
 
     # read hintfiles
     evi = Evidence()
@@ -65,15 +72,12 @@ def main():
         if not quiet:
             sys.stderr.write('### READING EXTRINSIC EVIDENCE: [{}]\n'.format(h))
         evi.add_hintfile(h)
-    for src in evi.src:
-        if src not in parameter.keys():
-            sys.stderr.write('ConfigError: No weight for src={}, it is set to 1\n'.format(src))
-            parameter.update({src : 1})
+
 
     # create graph with an edge for each unique transcript
     # and an edge if two transcripts overlap
     # two transcripts overlap if they share at least 3 adjacent protein coding nucleotides
-    graph = Graph(anno, para=parameter, verbose=v)
+    graph = Graph(gene_sets, verbose=v)
     if not quiet:
         sys.stderr.write('### BUILD OVERLAP GRAPH\n')
     graph.build()
@@ -83,8 +87,86 @@ def main():
         sys.stderr.write('### ADD FEATURES TO TRANSCRIPTS\n')
     graph.add_node_features(evi)
 
+
+    anno_keys = []
+    for tx in anno.transcripts.values():
+        anno_keys.append(get_tx_key(tx))
+
+    numb_nodes = len(graph.nodes)
+    x = np.zeros((numb_nodes, 30))
+    y = np.zeros((numb_nodes, 2))
+    tx_keys = []
+    for key, i in zip(graph.nodes.keys(), range(numb_nodes)):
+        node = graph.nodes[key]
+        tx = graph.__tx_from_key__(key)
+        tx_keys.append(get_tx_key(tx))
+        if tx_keys[-1] in anno_keys:
+            y[i][1] = 1
+        else:
+            y[i][0] = 1
+        x[i] = node.feature_vector
+
+    test_indices = np.random.choice(numb_nodes, 3000, replace=False)
+    mask = np.ones(numb_nodes, bool)
+    mask[test_indices] = False
+    x_train = x[test_indices,]
+    y_train = y[test_indices,]
+    x_test = x[mask]
+    y_test = y[mask]
+
+    model = keras.Sequential([
+    keras.layers.Reshape(target_shape=(30,), input_shape=(30,)),
+    keras.layers.Dense(units=30, activation='relu'),
+    keras.layers.Dense(units=20, activation='relu'),
+    keras.layers.Dense(units=2, activation='softmax')
+    ])
+
+    data = tf.data.Dataset.from_tensor_slices((x_train, y_train)) \
+    .shuffle(len(y_train)) \
+    .batch(128)
+
+    model.compile(optimizer='adam',
+              loss=tf.losses.CategoricalCrossentropy(from_logits=True),
+              metrics=[keras.metrics.AUC()])
+    history = model.fit(
+        data.repeat(),
+        epochs=500,
+        steps_per_epoch=600
+    )
+    predictions = model.predict(x_test)
+    predictions_all = model.predict(x)
+    correct = 0
+    false = 0
+    print(np.sum(np.argmax(predictions, axis=1) == np.argmax(y_test, axis=1)))
+    #predictions[np.argmax(predictions, axis=1) == np.argmax(y_test, axis=1)]
+    keys_test = []
+    keys_train = []
+    for i in range(numb_nodes):
+        if i in test_indices and np.argmax(predictions_all[i]) == 1:
+            keys_train.append(tx_keys[i])
+        elif i not in test_indices and np.argmax(predictions_all[i]) == 1:
+            keys_test.append(tx_keys[i])
+    true = 0
+    for k in keys_train:
+        if k in anno_keys:
+            true+=1
+    print(np.shape(y_test))
+    print(true, len(keys_train), len(anno_keys))
+    anno_keys = set(anno_keys)
+    true_total = true
+    true = 0
+    for k in keys_test:
+        if k in anno_keys:
+            true+=1
+    print(true, len(keys_test), len(anno_keys))
+
+    print(true + true_total, len(keys_train) + len(keys_test),(true + true_total) / (len(keys_train) + len(keys_test)),\
+    (true + true_total)/len(anno_keys))
+    #model.save(args.out)
+
+    print(np.shape(y_test), len(set(tx_keys).intersection(anno_keys)))
     # apply decision rule to exclude a set of transcripts
-    if not quiet:
+    """if not quiet:
         sys.stderr.write('### SELECT TRANSCRIPTS\n')
     combined_prediction = graph.get_decided_graph()
 
@@ -108,23 +190,14 @@ def main():
     if not quiet:
         sys.stderr.write('### FINISHED\n\n')
         sys.stderr.write('### The combined gene prediciton is located at {}.\n'.format(\
-            out))
+            out))"""
 
-def set_parameter(cfg_file):
-    """
-        read parameters from the cfg file and store them in parameter.
-
-        Args:
-            cfg_file (str): Path to configuration file.
-    """
-    global parameter
-    with open(cfg_file, 'r') as file:
-        cfg = csv.reader(file, delimiter=' ')
-        for line in cfg:
-            if not line[0][0] == '#':
-                if line[0] not in parameter.keys():
-                    parameter.update({line[0] : None})
-                parameter[line[0]] = float(line[1])
+def get_tx_key(tx):
+    coords = []
+    for c in tx.get_type_coords('CDS').values():
+        coords += c
+    coords.sort()
+    return '_'.join([tx.chr, tx.strand] + [str(c[0]) + '_' + str(c[1]) for c in coords])
 
 def init(args):
     global gtf, hintfiles, threads, hint_source_weight, out, v, quiet
@@ -132,11 +205,6 @@ def init(args):
         gtf = args.gtf.split(',')
     if args.hintfiles:
         hintfiles = args.hintfiles.split(',')
-    if args.cfg:
-        cfg_file = args.cfg
-    else:
-        cfg_file = os.path.dirname(os.path.realpath(__file__)) + '/../config/default.cfg'
-    set_parameter(cfg_file)
     if args.out:
         out = args.out
     if args.verbose:
@@ -156,12 +224,11 @@ def parseCmd():
     parser.add_argument('-g', '--gtf', type=str, required=True,
         help='List (separated by commas) of gene prediciton files in gtf.\n' \
             + '(e.g. gene_pred1.gtf,gene_pred2.gtf,gene_pred3.gtf)')
+    parser.add_argument('-a', '--anno', type=str, required=True,
+        help='')
     parser.add_argument('-e', '--hintfiles', type=str, required=True,
         help='List (separated by commas) of files containing extrinsic evidence in gff.\n' \
             + '(e.g. hintsfile1.gff,hintsfile2.gtf,3.gtf)')
-    parser.add_argument('-c', '--cfg', type=str, required=True,
-        help='Configuration file that sets the parameter for TSEBRA. ' \
-            + 'You can find the recommended parameter at config/default.cfg.')
     parser.add_argument('-o', '--out', type=str, required=True,
         help='Outputfile for the combined gene prediciton in gtf.')
     parser.add_argument('-q', '--quiet', action='store_true',
