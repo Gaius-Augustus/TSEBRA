@@ -24,7 +24,7 @@ v = 0
 quiet = False
 #parameter = {'intron_support' : 0, 'stasto_support' : 0, \
     #'e_1' : 0, 'e_2' : 0, 'e_3' : 0, 'e_4' : 0}
-numb_features = 39
+numb_features = 69
 def main():
     """
         Overview:
@@ -93,8 +93,9 @@ def main():
     numb_val = 1000
 #x, y, mask_train, mask_val = split_data_set_by_nodes(graph, anno_keys, 2000, 500)
     x, y, mask_train, mask_val, txs = split_data_set_by_component(graph, anno_keys, numb_test, numb_val)
-    print(x.max(axis=0))
-    x = x / (x.max(axis=0) + 0.000000001)
+    x_max = x[:,:38].max(axis=0)+ 0.000000000001
+    x[:,:38] /= x_max
+    x[:,38:] /= x_max[5:36]
 
     x_train = x[mask_train]
     y_train = y[mask_train]
@@ -104,7 +105,7 @@ def main():
     y_test = y[(mask_train == False) & (mask_val == False)]
     print(x[0], y[0])
     print(x.shape, x_train.shape, x_val.shape, x_test.shape)
-    
+
     if args.model:
         model = keras.models.load_model(args.model)
     else:
@@ -120,22 +121,22 @@ def main():
          # metrics=[keras.metrics.AUC(), keras.metrics.Accuracy(), keras.metrics.Precision(), \
                 #keras.metrics.Recall()]\
         )
-        
+
     if not args.load:
         train_data = tf.data.Dataset.from_tensor_slices((x_train, y_train)) \
             .shuffle(len(y_train)) \
-            .batch(50)
+            .batch(100)
         if numb_val > 0:
             val_data = tf.data.Dataset.from_tensor_slices((x_val, y_val)) \
                 .shuffle(len(y_val)) \
-                .batch(50)
+                .batch(100)
 
-        
+
 
         history = model.fit(
             train_data.repeat(),
             epochs=4000,
-            steps_per_epoch=400,
+            steps_per_epoch=300,
             validation_data=val_data.repeat(),
             validation_steps=50
         )
@@ -176,8 +177,9 @@ def main():
     combined_anno = Anno('', 'combined_annotation')
     for i, tx in enumerate(txs):
         if pred_argmax[i] == 1:
-            tx.id = tx.source_anno + '.' + tx.id
-            combined_anno.transcripts.update({tx.id : tx})
+            tx[0].id = tx[0].source_anno + '.' + tx[0].id
+            tx[0].set_gene_id(tx[1])
+            combined_anno.transcripts.update({tx[0].id : tx[0]})
     combined_anno.find_genes()
     combined_anno.write_anno(args.out + '.gtf')
 
@@ -269,7 +271,7 @@ def split_data_set_by_component(graph, anno_keys, numb_train_components, numb_va
         for node_key in component:
             x[k] = graph.nodes[node_key].feature_vector
             tx = graph.__tx_from_key__(node_key)
-            txs.append(tx)
+            txs.append([tx, graph.nodes[node_key].component_id])
             if get_tx_key(tx) in anno_keys:
                 y[k][1] = 1
             else:
@@ -352,7 +354,7 @@ def parseCmd():
             + '(e.g. gene_pred1.gtf,gene_pred2.gtf,gene_pred3.gtf)')
     parser.add_argument('-a', '--anno', type=str, required=True,
         help='')
-    parser.add_argument('-m', '--model', type=str, 
+    parser.add_argument('-m', '--model', type=str,
         help='')
     parser.add_argument('-l', '--load', action='store_true',
         help='')

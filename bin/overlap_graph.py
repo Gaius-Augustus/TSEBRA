@@ -51,15 +51,11 @@ class Node:
         # len CDS
         # len UTR
         # len introns
-        #### For intron, start stop:
-            # rel intron hint support for 'E'
-            # rel intron hint support for 'P'
-            # rel intron hint support for 'C'
-            # rel intron hint support for 'M'
-            # abs intron hint support for 'E'
-            # abs intron hint support for 'P'
-            # abs intron hint support for 'C'
-            # abs intron hint support for 'M'
+        #### For type in intron, start stop:
+            #### For src in E, P C and M:
+                # rel intron hint support for src
+            #### For src in E, P C and M:
+                # abs intron hint support for src
         # rel intron support by neighbours
         # abs intron support by neighbours
         # max rel intron support by single neighbour
@@ -69,8 +65,22 @@ class Node:
         # abs stop support by neighbours
         # tx predicted by BRAKER1
         # tx predicted by BRAKER2
-        # tx predicted by BRAKER3
-        self.feature_vector = np.zeros(39)
+
+        #### For type in intron, start stop:
+            #### For src in E, P C and M:
+                # avg rel intron hint support for src in locus
+            #### For src in E, P C and M:
+                # avg abs intron hint support for src in locus
+        #### Avg *** in locus:
+            # rel intron support by neighbours
+            # abs intron support by neighbours
+            # max rel intron support by single neighbour
+            # rel start support by neighbours
+            # abs start support by neighbours
+            # rel stop support by neighbours
+            # abs stop support by neighbours
+
+        self.feature_vector = np.zeros(69)
         self.dup_sources = {}
         self.evi_support = False
 
@@ -286,12 +296,12 @@ class Graph:
         """
         for node_key in self.nodes.keys():
             tx = self.__tx_from_key__(node_key)
-            self.nodes[node_key].feature_vector[0] = len(tx.transcript_lines['intron'])
-            self.nodes[node_key].feature_vector[1] = len(self.nodes[node_key].dup_sources)
-            self.nodes[node_key].feature_vector[2] = tx.cds_len
-            self.nodes[node_key].feature_vector[3] = tx.utr_len
-            self.nodes[node_key].feature_vector[4] = tx.end - tx.start + 1 - \
-                                                tx.cds_len - tx.utr_len
+            self.nodes[node_key].feature_vector[0] = 1.0 * len(tx.transcript_lines['intron'])
+            self.nodes[node_key].feature_vector[1] = 1.0 * len(self.nodes[node_key].dup_sources)
+            self.nodes[node_key].feature_vector[2] = tx.cds_len * 1.0
+            self.nodes[node_key].feature_vector[3] = tx.utr_len * 1.0
+            self.nodes[node_key].feature_vector[4] = 1.0 * (tx.end - tx.start + 1 - \
+                                                tx.cds_len - tx.utr_len)
 
 
             evi_list = {'intron' : {'E' : [], 'P': [], 'C': [], 'M': []}, \
@@ -310,25 +320,25 @@ class Graph:
                 range(3), [self.nodes[node_key].feature_vector[0], 1, 1]) :
                 for evi_src, j in zip(['E', 'P', 'C', 'M'], range(4)):
                     if abs_numb == 0:
-                        self.nodes[node_key].feature_vector[5 + i * 8 + j] = -1
+                        self.nodes[node_key].feature_vector[5 + i * 8 + j] = 0.0
                     else:
                         self.nodes[node_key].feature_vector[5 + i * 8 + j] = \
-                            len(evi_list[type][evi_src])/abs_numb
+                            1.0*len(evi_list[type][evi_src])/abs_numb
                     self.nodes[node_key].feature_vector[9 + i * 8 + j] = \
-                        sum(evi_list[type][evi_src])
+                        sum(evi_list[type][evi_src]) *1.0
 
             i = 29
             for type in ['intron', 'start_codon', 'stop_codon']:
                 tx_feature = set([f'{i[0]}_{i[1]}' for i in \
                     tx.get_type_coords(type, frame=False)])
                 if len(tx_feature) == 0:
-                    self.nodes[node_key].feature_vector[i] = 0
-                    self.nodes[node_key].feature_vector[i+1] = 0
-                    self.nodes[node_key].feature_vector[i + 2] = 0
+                    self.nodes[node_key].feature_vector[i] = 0.0
+                    self.nodes[node_key].feature_vector[i+1] = 0.0
+                    self.nodes[node_key].feature_vector[i + 2] = 0.0
                 else:
                     tx_feature_neighbours = []
                     if type == 'intron':
-                        self.nodes[node_key].feature_vector[i + 2] = 0
+                        self.nodes[node_key].feature_vector[i + 2] = 0.0
                     for neighbour_id in self.nodes[node_key].edge_to:
                         tx2 = self.__tx_from_key__(neighbour_id)
                         tx_feature2 = [f'{i[0]}_{i[1]}' for i in \
@@ -340,22 +350,27 @@ class Graph:
                                 self.nodes[node_key].feature_vector[i + 2] = intersection
                     self.nodes[node_key].feature_vector[i] = len(tx_feature.intersection(\
                         set(tx_feature_neighbours)))/len(tx_feature)
-                    self.nodes[node_key].feature_vector[i+1] = 0
+                    self.nodes[node_key].feature_vector[i+1] = 0.0
                     for f in tx_feature:
                         self.nodes[node_key].feature_vector[i+1] += tx_feature_neighbours.count(f)
                 i += 2
                 if type == 'intron':
                     i += 1
-            if 'anno1' in self.nodes[node_key].dup_sources \
-                or 'anno3' in self.nodes[node_key].dup_sources:
-                self.nodes[node_key].feature_vector[36] = 1
-            if 'anno2' in self.nodes[node_key].dup_sources\
-                or 'anno4' in self.nodes[node_key].dup_sources:
-                self.nodes[node_key].feature_vector[37] = 1
-            if 'anno5' in self.nodes[node_key].dup_sources:
-                self.nodes[node_key].feature_vector[38] = 1
 
+            if 'anno1' in self.nodes[node_key].dup_sources:
+                self.nodes[node_key].feature_vector[36] = 1.0
+            if 'anno2' in self.nodes[node_key].dup_sources:
+                self.nodes[node_key].feature_vector[37] = 1.0
 
+        if not self.component_list:
+            self.connected_components()
+        for component in self.component_list:
+            avg_support = np.zeros(31, float)
+            for node_key in component:
+                avg_support += self.nodes[node_key].feature_vector[5:36]
+            avg_support /= len(component)
+            for node_key in component:
+                self.nodes[node_key].feature_vector[38:69] = avg_support
 
 
 
