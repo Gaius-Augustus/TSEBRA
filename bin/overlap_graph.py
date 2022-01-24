@@ -51,16 +51,27 @@ class Node:
         # len CDS
         # len UTR
         # len introns
-        # rel intron hint support
-        # rel intron hint support for 'E'
-        # rel intron hint support for 'P'
-        # rel intron hint support for 'C'
-        # rel intron hint support for 'M'
-        # abs intron hint support for 'E'
-        # abs intron hint support for 'P'
-        # abs intron hint support for 'C'
-        # abs intron hint support for 'M'
-        self.feature_vector = np.zeros(30)
+        #### For intron, start stop:
+            # rel intron hint support for 'E'
+            # rel intron hint support for 'P'
+            # rel intron hint support for 'C'
+            # rel intron hint support for 'M'
+            # abs intron hint support for 'E'
+            # abs intron hint support for 'P'
+            # abs intron hint support for 'C'
+            # abs intron hint support for 'M'
+        # rel intron support by neighbours
+        # abs intron support by neighbours
+        # max rel intron support by single neighbour
+        # rel start support by neighbours
+        # abs start support by neighbours
+        # rel stop support by neighbours
+        # abs stop support by neighbours
+        # tx predicted by BRAKER1
+        # tx predicted by BRAKER2
+        # tx predicted by BRAKER3
+        self.feature_vector = np.zeros(39)
+        self.dup_sources = {}
         self.evi_support = False
 
 class Graph:
@@ -147,7 +158,7 @@ class Graph:
                     tx_start_end.update({tx.chr : []})
                     unique_tx_keys.update({tx.chr : {}})
                 unique_key = f"{tx.start}_{tx.end}_{tx.strand}"
-                dup = {tx.source_method}
+                dup = {tx.source_anno}
                 if unique_key in unique_tx_keys[tx.chr].keys():
                     check = False
                     coords = tx.get_type_coords('CDS')
@@ -155,12 +166,12 @@ class Graph:
                         if coords == t.get_type_coords('CDS'):
                             if tx.utr and not t.utr:
                                 unique_tx_keys[tx.chr][unique_key].remove(t)
-                                dup.add(t.source_method)
+                                dup.add(t.source_anno)
                             elif tx.utr and t.utr and tx.utr_len  > t.utr_len:
                                 unique_tx_keys[tx.chr][unique_key].remove(t)
-                                dup.add(t.source_method)
+                                dup.add(t.source_anno)
                             else:
-                                numb_dup[f"{t.source_anno};{t.id}"].add(tx.source_method)
+                                numb_dup[f"{t.source_anno};{t.id}"].add(tx.source_anno)
                                 check = True
                                 break
                     if check:
@@ -176,7 +187,7 @@ class Graph:
                     key = f"{tx.source_anno};{tx.id}"
                     self.nodes.update({key : Node(tx.source_anno, \
                         tx.id)})
-                    self.nodes[key].feature_vector[1] = len(numb_dup[key])
+                    self.nodes[key].dup_sources = numb_dup[key]
                     tx_start_end[tx.chr].append([key, tx.start, 0])
                     tx_start_end[tx.chr].append([key, tx.end, 1])
 
@@ -276,6 +287,7 @@ class Graph:
         for node_key in self.nodes.keys():
             tx = self.__tx_from_key__(node_key)
             self.nodes[node_key].feature_vector[0] = len(tx.transcript_lines['intron'])
+            self.nodes[node_key].feature_vector[1] = len(self.nodes[node_key].dup_sources)
             self.nodes[node_key].feature_vector[2] = tx.cds_len
             self.nodes[node_key].feature_vector[3] = tx.utr_len
             self.nodes[node_key].feature_vector[4] = tx.end - tx.start + 1 - \
@@ -303,7 +315,48 @@ class Graph:
                         self.nodes[node_key].feature_vector[5 + i * 8 + j] = \
                             len(evi_list[type][evi_src])/abs_numb
                     self.nodes[node_key].feature_vector[9 + i * 8 + j] = \
-                        sum(evi_list[type][evi_src])            
+                        sum(evi_list[type][evi_src])
+
+            i = 29
+            for type in ['intron', 'start_codon', 'stop_codon']:
+                tx_feature = set([f'{i[0]}_{i[1]}' for i in \
+                    tx.get_type_coords(type, frame=False)])
+                if len(tx_feature) == 0:
+                    self.nodes[node_key].feature_vector[i] = 0
+                    self.nodes[node_key].feature_vector[i+1] = 0
+                    self.nodes[node_key].feature_vector[i + 2] = 0
+                else:
+                    tx_feature_neighbours = []
+                    if type == 'intron':
+                        self.nodes[node_key].feature_vector[i + 2] = 0
+                    for neighbour_id in self.nodes[node_key].edge_to:
+                        tx2 = self.__tx_from_key__(neighbour_id)
+                        tx_feature2 = [f'{i[0]}_{i[1]}' for i in \
+                        tx2.get_type_coords(type, frame=False)]
+                        tx_feature_neighbours += tx_feature2
+                        if type == 'intron':
+                            intersection = len(tx_feature.intersection(set(tx_feature2)))/len(tx_feature)
+                            if intersection > self.nodes[node_key].feature_vector[i + 2]:
+                                self.nodes[node_key].feature_vector[i + 2] = intersection
+                    self.nodes[node_key].feature_vector[i] = len(tx_feature.intersection(\
+                        set(tx_feature_neighbours)))/len(tx_feature)
+                    self.nodes[node_key].feature_vector[i+1] = 0
+                    for f in tx_feature:
+                        self.nodes[node_key].feature_vector[i+1] += tx_feature_neighbours.count(f)
+                i += 2
+                if type == 'intron':
+                    i += 1
+            if 'anno1' in self.nodes[node_key].dup_sources:
+                self.nodes[node_key].feature_vector[36] = 1
+            if 'anno2' in self.nodes[node_key].dup_sources:
+                self.nodes[node_key].feature_vector[37] = 1
+            if 'anno2' in self.nodes[node_key].dup_sources:
+                self.nodes[node_key].feature_vector[38] = 1
+
+
+
+
+
 
     def decide_edge(self, edge):
         """

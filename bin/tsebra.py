@@ -24,7 +24,7 @@ v = 0
 quiet = False
 #parameter = {'intron_support' : 0, 'stasto_support' : 0, \
     #'e_1' : 0, 'e_2' : 0, 'e_3' : 0, 'e_4' : 0}
-
+numb_features = 39
 def main():
     """
         Overview:
@@ -86,65 +86,94 @@ def main():
     if not quiet:
         sys.stderr.write('### ADD FEATURES TO TRANSCRIPTS\n')
     graph.add_node_features(evi)
-
-
     anno_keys = []
     for tx in anno.transcripts.values():
         anno_keys.append(get_tx_key(tx))
+    numb_test = 13000
+    numb_val = 1300
+#x, y, mask_train, mask_val = split_data_set_by_nodes(graph, anno_keys, 2000, 500)
+    x, y, mask_train, mask_val = split_data_set_by_component(graph, anno_keys, numb_test, numb_val)
+    print(x.max(axis=0))
+    x = x / (x.max(axis=0) + 0.000000001)
 
-    numb_nodes = len(graph.nodes)
-    x = np.zeros((numb_nodes, 30))
-    y = np.zeros((numb_nodes, 2))
-    tx_keys = []
-    for key, i in zip(graph.nodes.keys(), range(numb_nodes)):
-        node = graph.nodes[key]
-        tx = graph.__tx_from_key__(key)
-        tx_keys.append(get_tx_key(tx))
-        if tx_keys[-1] in anno_keys:
-            y[i][1] = 1
-        else:
-            y[i][0] = 1
-        x[i] = node.feature_vector
+    x_train = x[mask_train]
+    y_train = y[mask_train]
+    x_val = x[mask_val]
+    y_val = y[mask_val]
+    x_test = x[(mask_train == False) & (mask_val == False)]
+    y_test = y[(mask_train == False) & (mask_val == False)]
+    print(x[0], y[0])
+    print(x.shape, x_train.shape, x_val.shape, x_test.shape)
+    if args.load:
+        model = keras.models.load_model(args.out)
+    else:
+        model = keras.Sequential([
+        keras.layers.Reshape(target_shape=(numb_features,), input_shape=(numb_features,)),
+        keras.layers.Dense(units=int((numb_features+2)/2), activation='relu'),
+        keras.layers.Dense(units=2, activation='softmax')
+        ])
 
-    test_indices = np.random.choice(numb_nodes, 3000, replace=False)
-    mask = np.ones(numb_nodes, bool)
-    mask[test_indices] = False
-    x_train = x[test_indices,]
-    y_train = y[test_indices,]
-    x_test = x[mask]
-    y_test = y[mask]
+        train_data = tf.data.Dataset.from_tensor_slices((x_train, y_train)) \
+            .shuffle(len(y_train)) \
+            .batch(50)
+        if numb_val > 0:
+            val_data = tf.data.Dataset.from_tensor_slices((x_val, y_val)) \
+                .shuffle(len(y_val)) \
+                .batch(50)
 
-    model = keras.Sequential([
-    keras.layers.Reshape(target_shape=(30,), input_shape=(30,)),
-    keras.layers.Dense(units=30, activation='relu'),
-    keras.layers.Dense(units=20, activation='relu'),
-    keras.layers.Dense(units=2, activation='softmax')
-    ])
+        model.compile(optimizer='adam',
+              loss=tf.losses.CategoricalCrossentropy(),
+              metrics=['accuracy']
+                  #metrics=['accuracy', keras.metrics.Precision(), keras.metrics.Recall()]
+             # metrics=[keras.metrics.AUC(), keras.metrics.Accuracy(), keras.metrics.Precision(), \
+                    #keras.metrics.Recall()]\
+        )
 
-    data = tf.data.Dataset.from_tensor_slices((x_train, y_train)) \
-    .shuffle(len(y_train)) \
-    .batch(128)
+        history = model.fit(
+            train_data.repeat(),
+            epochs=4000,
+            steps_per_epoch=400,
+            validation_data=val_data.repeat(),
+            validation_steps=50
+        )
 
-    model.compile(optimizer='adam',
-              loss=tf.losses.CategoricalCrossentropy(from_logits=True),
-              metrics=[keras.metrics.AUC()])
-    history = model.fit(
-        data.repeat(),
-        epochs=500,
-        steps_per_epoch=600
-    )
+        model.save(args.out)
     predictions = model.predict(x_test)
-    predictions_all = model.predict(x)
     correct = 0
     false = 0
-    print(np.sum(np.argmax(predictions, axis=1) == np.argmax(y_test, axis=1)))
+    if numb_val > 0:
+        list = [[x_train,  y_train], [x_val,  y_val], [x_test,  y_test], [x,y]]
+    else:
+        list = [[x_train,  y_train], [x_test,  y_test], [x,y]]
+    for x_it, y_it in list:
+        predictions = model.predict(x_it)
+
+        pred_argmax = np.zeros(len(predictions))
+        pred_argmax[predictions[:,1] > 0.5] = 1
+        y_argmax = np.argmax(y_it, axis=1)
+        print(np.sum( \
+            pred_argmax == y_argmax) / \
+            len(anno_keys))
+        print(np.sum( \
+            (pred_argmax == y_argmax)[pred_argmax == 1]) / \
+            len(anno_keys))
+        print(np.sum(pred_argmax == y_argmax) / \
+            len(x_it))
+        print(np.sum((pred_argmax == y_argmax)[pred_argmax == 1]) / \
+            len(y_argmax[y_argmax == 1]))
+        print('----------------')
+    model.evaluate(x_train,  y_train, verbose=2)
+    model.evaluate(x_val,  y_val, verbose=2)
+    model.evaluate(x_test,  y_test, verbose=2)
+    """
     #predictions[np.argmax(predictions, axis=1) == np.argmax(y_test, axis=1)]
+    numb_nodes = len(graph.nodes)
     keys_test = []
     keys_train = []
     for i in range(numb_nodes):
-        if i in test_indices and np.argmax(predictions_all[i]) == 1:
+        if (mask_train[i] == False) & (mask_val[i] == False) and np.argmax(predictions_all[i]) == 1:
             keys_train.append(tx_keys[i])
-        elif i not in test_indices and np.argmax(predictions_all[i]) == 1:
+        elif (mask_train[i] == False) & (mask_val[i] == False) and np.argmax(predictions_all[i]) == 1:
             keys_test.append(tx_keys[i])
     true = 0
     for k in keys_train:
@@ -166,6 +195,7 @@ def main():
 
     print(np.shape(y_test), len(set(tx_keys).intersection(anno_keys)))
     # apply decision rule to exclude a set of transcripts
+    """
     """if not quiet:
         sys.stderr.write('### SELECT TRANSCRIPTS\n')
     combined_prediction = graph.get_decided_graph()
@@ -191,6 +221,83 @@ def main():
         sys.stderr.write('### FINISHED\n\n')
         sys.stderr.write('### The combined gene prediciton is located at {}.\n'.format(\
             out))"""
+
+
+def split_data_set_by_component(graph, anno_keys, numb_train_components, numb_val_components=0):
+    numb_nodes = len(graph.nodes)
+    if not graph.component_list:
+        graph.connected_components()
+    numb_components = len(graph.component_list)
+    print(f'### Numb. of components in graph: {numb_components}')
+    train_val_indices = np.random.choice(numb_components, numb_train_components+numb_val_components, \
+        replace=False)
+
+    val_sub_indices = np.random.choice(numb_train_components+numb_val_components, \
+        numb_val_components, replace=False)
+    mask_sub_val = np.zeros(numb_train_components+numb_val_components, bool)
+    mask_sub_val[val_sub_indices] = True
+
+    val_indices = train_val_indices[mask_sub_val]
+    train_indices = train_val_indices[mask_sub_val == False]
+
+    mask_components = np.ones(numb_components, bool)
+    mask_components[train_indices] = False
+
+    x = np.zeros((numb_nodes, numb_features), float)
+    y = np.zeros((numb_nodes, 2))
+    mask_train = np.zeros(numb_nodes, bool)
+    mask_val = np.zeros(numb_nodes, bool)
+    k = 0
+    for i, component in enumerate(graph.component_list):
+        for node_key in component:
+            x[k] = graph.nodes[node_key].feature_vector
+            if get_tx_key(graph.__tx_from_key__(node_key)) in anno_keys:
+                y[k][1] = 1
+            else:
+                y[k][0] = 1
+            if i in train_indices:
+                mask_train[k] = True
+            elif i in val_indices:
+                mask_val[k] = True
+            k += 1
+    return x, y, mask_train, mask_val
+
+
+
+def split_data_set_by_nodes(fraph, anno_keys, numb_train_nodes):
+
+    numb_nodes = len(graph.nodes)
+    x = np.zeros((numb_nodes, numb_features), float)
+    y = np.zeros((numb_nodes, 2))
+    tx_keys = []
+    for key, i in zip(graph.nodes.keys(), range(numb_nodes)):
+        node = graph.nodes[key]
+        tx = graph.__tx_from_key__(key)
+        tx_keys.append(get_tx_key(tx))
+        if tx_keys[-1] in anno_keys:
+            y[i][1] = 1
+        else:
+            y[i][0] = 1
+        x[i] = node.feature_vector
+
+    train_val_indices = np.random.choice(len(x), numb_train_components+numb_val_components, \
+        replace=False)
+
+    val_sub_indices = np.random.choice(numb_train_components+numb_val_components, \
+        numb_val_components, replace=False)
+    mask_sub_val = np.zeros(numb_train_components+numb_val_components, bool)
+    mask_sub_val[val_sub_indices] = True
+
+    val_indices = train_val_indices[mask_sub_val]
+    train_indices = train_val_indices[mask_sub_val == False]
+
+
+    print(f'### Numb. of nodes in graph: {len(x)}')
+    mask_train = np.zeros(len(x), bool)
+    mask_train[train_indices] = True
+    mask_val = np.zeros(len(x), bool)
+    mask_val[val_indices] = True
+    return x, y, mask_train, mask_val
 
 def get_tx_key(tx):
     coords = []
@@ -225,6 +332,8 @@ def parseCmd():
         help='List (separated by commas) of gene prediciton files in gtf.\n' \
             + '(e.g. gene_pred1.gtf,gene_pred2.gtf,gene_pred3.gtf)')
     parser.add_argument('-a', '--anno', type=str, required=True,
+        help='')
+    parser.add_argument('-l', '--load', action='store_true',
         help='')
     parser.add_argument('-e', '--hintfiles', type=str, required=True,
         help='List (separated by commas) of files containing extrinsic evidence in gff.\n' \
