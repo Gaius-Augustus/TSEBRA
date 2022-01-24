@@ -89,8 +89,8 @@ def main():
     anno_keys = []
     for tx in anno.transcripts.values():
         anno_keys.append(get_tx_key(tx))
-    numb_test = 1700
-    numb_val = 100
+    numb_test = len(graph.connected_components())*0.9
+    numb_val = len(graph.connected_components()) * 0.1
 #x, y, mask_train, mask_val = split_data_set_by_nodes(graph, anno_keys, 2000, 500)
     x, y, mask_train, mask_val, txs = split_data_set_by_component(graph, anno_keys, numb_test, numb_val)
     x_max = x[:,:38].max(axis=0)+ 0.000000000001
