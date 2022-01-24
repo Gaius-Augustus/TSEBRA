@@ -89,8 +89,8 @@ def main():
     anno_keys = []
     for tx in anno.transcripts.values():
         anno_keys.append(get_tx_key(tx))
-    numb_test = 420
-    numb_val = 30
+    numb_test = 1700
+    numb_val = 100
 #x, y, mask_train, mask_val = split_data_set_by_nodes(graph, anno_keys, 2000, 500)
     x, y, mask_train, mask_val, txs = split_data_set_by_component(graph, anno_keys, numb_test, numb_val)
     x_max = x[:,:38].max(axis=0)+ 0.000000000001
@@ -135,10 +135,10 @@ def main():
 
         history = model.fit(
             train_data.repeat(),
-            epochs=1000,
+            epochs=5000,
             steps_per_epoch=50,
             validation_data=val_data.repeat(),
-            validation_steps=2
+            validation_steps=10
         )
 
         model.save(args.out)
