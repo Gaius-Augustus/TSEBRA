@@ -346,11 +346,13 @@ class Graph:
                 i += 2
                 if type == 'intron':
                     i += 1
-            if 'anno1' in self.nodes[node_key].dup_sources:
+            if 'anno1' in self.nodes[node_key].dup_sources \
+                or 'anno3' in self.nodes[node_key].dup_sources:
                 self.nodes[node_key].feature_vector[36] = 1
-            if 'anno2' in self.nodes[node_key].dup_sources:
+            if 'anno2' in self.nodes[node_key].dup_sources\
+                or 'anno4' in self.nodes[node_key].dup_sources:
                 self.nodes[node_key].feature_vector[37] = 1
-            if 'anno2' in self.nodes[node_key].dup_sources:
+            if 'anno5' in self.nodes[node_key].dup_sources:
                 self.nodes[node_key].feature_vector[38] = 1
 
 

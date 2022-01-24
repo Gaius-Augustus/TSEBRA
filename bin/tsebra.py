@@ -89,10 +89,10 @@ def main():
     anno_keys = []
     for tx in anno.transcripts.values():
         anno_keys.append(get_tx_key(tx))
-    numb_test = 13000
-    numb_val = 1300
+    numb_test = 14000
+    numb_val = 1000
 #x, y, mask_train, mask_val = split_data_set_by_nodes(graph, anno_keys, 2000, 500)
-    x, y, mask_train, mask_val = split_data_set_by_component(graph, anno_keys, numb_test, numb_val)
+    x, y, mask_train, mask_val, txs = split_data_set_by_component(graph, anno_keys, numb_test, numb_val)
     print(x.max(axis=0))
     x = x / (x.max(axis=0) + 0.000000001)
 
@@ -104,15 +104,24 @@ def main():
     y_test = y[(mask_train == False) & (mask_val == False)]
     print(x[0], y[0])
     print(x.shape, x_train.shape, x_val.shape, x_test.shape)
-    if args.load:
-        model = keras.models.load_model(args.out)
+    
+    if args.model:
+        model = keras.models.load_model(args.model)
     else:
         model = keras.Sequential([
         keras.layers.Reshape(target_shape=(numb_features,), input_shape=(numb_features,)),
         keras.layers.Dense(units=int((numb_features+2)/2), activation='relu'),
         keras.layers.Dense(units=2, activation='softmax')
         ])
-
+        model.compile(optimizer='adam',
+          loss=tf.losses.CategoricalCrossentropy(),
+          metrics=['accuracy']
+              #metrics=['accuracy', keras.metrics.Precision(), keras.metrics.Recall()]
+         # metrics=[keras.metrics.AUC(), keras.metrics.Accuracy(), keras.metrics.Precision(), \
+                #keras.metrics.Recall()]\
+        )
+        
+    if not args.load:
         train_data = tf.data.Dataset.from_tensor_slices((x_train, y_train)) \
             .shuffle(len(y_train)) \
             .batch(50)
@@ -121,13 +130,7 @@ def main():
                 .shuffle(len(y_val)) \
                 .batch(50)
 
-        model.compile(optimizer='adam',
-              loss=tf.losses.CategoricalCrossentropy(),
-              metrics=['accuracy']
-                  #metrics=['accuracy', keras.metrics.Precision(), keras.metrics.Recall()]
-             # metrics=[keras.metrics.AUC(), keras.metrics.Accuracy(), keras.metrics.Precision(), \
-                    #keras.metrics.Recall()]\
-        )
+        
 
         history = model.fit(
             train_data.repeat(),
@@ -165,6 +168,19 @@ def main():
     model.evaluate(x_train,  y_train, verbose=2)
     model.evaluate(x_val,  y_val, verbose=2)
     model.evaluate(x_test,  y_test, verbose=2)
+
+    predictions = model.predict(x)
+    pred_argmax = np.zeros(len(predictions))
+    pred_argmax[predictions[:,1] > 0.5] = 1
+
+    combined_anno = Anno('', 'combined_annotation')
+    for i, tx in enumerate(txs):
+        if pred_argmax[i] == 1:
+            tx.id = tx.source_anno + '.' + tx.id
+            combined_anno.transcripts.update({tx.id : tx})
+    combined_anno.find_genes()
+    combined_anno.write_anno(args.out + '.gtf')
+
     """
     #predictions[np.argmax(predictions, axis=1) == np.argmax(y_test, axis=1)]
     numb_nodes = len(graph.nodes)
@@ -248,10 +264,13 @@ def split_data_set_by_component(graph, anno_keys, numb_train_components, numb_va
     mask_train = np.zeros(numb_nodes, bool)
     mask_val = np.zeros(numb_nodes, bool)
     k = 0
+    txs = []
     for i, component in enumerate(graph.component_list):
         for node_key in component:
             x[k] = graph.nodes[node_key].feature_vector
-            if get_tx_key(graph.__tx_from_key__(node_key)) in anno_keys:
+            tx = graph.__tx_from_key__(node_key)
+            txs.append(tx)
+            if get_tx_key(tx) in anno_keys:
                 y[k][1] = 1
             else:
                 y[k][0] = 1
@@ -260,7 +279,7 @@ def split_data_set_by_component(graph, anno_keys, numb_train_components, numb_va
             elif i in val_indices:
                 mask_val[k] = True
             k += 1
-    return x, y, mask_train, mask_val
+    return x, y, mask_train, mask_val, txs
 
 
 
@@ -332,6 +351,8 @@ def parseCmd():
         help='List (separated by commas) of gene prediciton files in gtf.\n' \
             + '(e.g. gene_pred1.gtf,gene_pred2.gtf,gene_pred3.gtf)')
     parser.add_argument('-a', '--anno', type=str, required=True,
+        help='')
+    parser.add_argument('-m', '--model', type=str, 
         help='')
     parser.add_argument('-l', '--load', action='store_true',
         help='')
