@@ -65,6 +65,12 @@ class Node:
         # abs stop support by neighbours
         # tx predicted by BRAKER1
         # tx predicted by BRAKER2
+        # single exon tx?
+        # len of longest intron
+        # len of shortest intron
+        # len of longest exon
+        # len of shortest exon        
+        # truncated tx?
 
         #### For type in intron, start stop:
             #### For src in E, P C and M:
@@ -80,7 +86,9 @@ class Node:
             # rel stop support by neighbours
             # abs stop support by neighbours
 
-        self.feature_vector = np.zeros(69)
+        
+        
+        self.feature_vector = np.zeros(75)
         self.dup_sources = {}
         self.evi_support = False
 
@@ -295,6 +303,7 @@ class Graph:
                 evi (Evidence): Evidence class object with all hints from any source.
         """
         for node_key in self.nodes.keys():
+            #def add_node_f:
             tx = self.__tx_from_key__(node_key)
             self.nodes[node_key].feature_vector[0] = 1.0 * len(tx.transcript_lines['intron'])
             self.nodes[node_key].feature_vector[1] = 1.0 * len(self.nodes[node_key].dup_sources)
@@ -356,12 +365,45 @@ class Graph:
                 i += 2
                 if type == 'intron':
                     i += 1
-
+            
+            i = 36
             if 'anno1' in self.nodes[node_key].dup_sources:
-                self.nodes[node_key].feature_vector[36] = 1.0
+                self.nodes[node_key].feature_vector[i] = 1.0
+            i += 1
             if 'anno2' in self.nodes[node_key].dup_sources:
-                self.nodes[node_key].feature_vector[37] = 1.0
-
+                self.nodes[node_key].feature_vector[i] = 1.0
+            i+=1
+            if len(tx.transcript_lines['intron']) == 0:
+                self.nodes[node_key].feature_vector[i] = 1                 
+                self.nodes[node_key].feature_vector[i+1] = 0
+                self.nodes[node_key].feature_vector[i+2] = 0
+            else:
+                self.nodes[node_key].feature_vector[i] = 0
+                intron_len = [c[1] - c[0] +1 for c in tx.get_type_coords('intron', frame=False)]
+                self.nodes[node_key].feature_vector[i+1] = max(intron_len)
+                self.nodes[node_key].feature_vector[i+2] = min(intron_len)
+            i += 3            
+            cds = tx.get_type_coords('CDS', frame=False)
+            cds_len = [c[1] - c[0] +1 for c in cds]
+            self.nodes[node_key].feature_vector[i] = max(cds_len)
+            self.nodes[node_key].feature_vector[i] = min(cds_len)              
+            i += 2
+            self.nodes[node_key].feature_vector[i] = 0
+            for n_id in self.nodes[node_key].edge_to:
+                tx2 = self.__tx_from_key__(n_id)
+                cds2 = tx.get_type_coords('CDS', frame=False)
+                cds2_set = set([f'{i[0]}_{i[1]}' for i in cds2])
+                if [c for c in cds2 if c[0] == cds[-1][0] and c[1]>cds[-1][1]]:
+                    print('!!!')                
+                if (set([f'{i[0]}_{i[1]}' for i in cds[:-1]]).issubset(cds2_set) \
+                        and len([c for c in cds2 if c[0] == cds[-1][0] and c[1]>cds[-1][1]])>0) \
+                    or (set([f'{i[0]}_{i[1]}' for i in cds[1:]]).issubset(cds2_set) \
+                        and len([c for c in cds2 if c[0] == cds[0][0] and c[1]>cds[0][1]])>0):
+                    self.nodes[node_key].feature_vector[i] = 1
+                    break
+            i += 1
+    
+        i = 44
         if not self.component_list:
             self.connected_components()
         for component in self.component_list:
@@ -370,9 +412,7 @@ class Graph:
                 avg_support += self.nodes[node_key].feature_vector[5:36]
             avg_support /= len(component)
             for node_key in component:
-                self.nodes[node_key].feature_vector[38:69] = avg_support
-
-
+                self.nodes[node_key].feature_vector[i:i+31] = avg_support
 
 
     def decide_edge(self, edge):

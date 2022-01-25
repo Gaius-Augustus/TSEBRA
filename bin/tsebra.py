@@ -24,7 +24,7 @@ v = 0
 quiet = False
 #parameter = {'intron_support' : 0, 'stasto_support' : 0, \
     #'e_1' : 0, 'e_2' : 0, 'e_3' : 0, 'e_4' : 0}
-numb_features = 69
+numb_features = 75
 def main():
     """
         Overview:
@@ -89,13 +89,11 @@ def main():
     anno_keys = []
     for tx in anno.transcripts.values():
         anno_keys.append(get_tx_key(tx))
-    numb_test = len(graph.connected_components())*0.9
-    numb_val = len(graph.connected_components()) * 0.1
+    numb_test = int(len(graph.connected_components())*0.9)
+    numb_val = int(len(graph.connected_components()) * 0.1)
 #x, y, mask_train, mask_val = split_data_set_by_nodes(graph, anno_keys, 2000, 500)
     x, y, mask_train, mask_val, txs = split_data_set_by_component(graph, anno_keys, numb_test, numb_val)
-    x_max = x[:,:38].max(axis=0)+ 0.000000000001
-    x[:,:38] /= x_max
-    x[:,38:] /= x_max[5:36]
+    
 
     x_train = x[mask_train]
     y_train = y[mask_train]
@@ -115,7 +113,7 @@ def main():
         keras.layers.Dense(units=2, activation='softmax')
         ])
         model.compile(optimizer='adam',
-          loss=tf.losses.CategoricalCrossentropy(),
+          loss=tf.losses.CategoricalCrossentropy(from_logits=True),
           metrics=['accuracy']
               #metrics=['accuracy', keras.metrics.Precision(), keras.metrics.Recall()]
          # metrics=[keras.metrics.AUC(), keras.metrics.Accuracy(), keras.metrics.Precision(), \
@@ -125,18 +123,16 @@ def main():
     if not args.load:
         train_data = tf.data.Dataset.from_tensor_slices((x_train, y_train)) \
             .shuffle(len(y_train)) \
-            .batch(100)
+            .batch(256)
         if numb_val > 0:
             val_data = tf.data.Dataset.from_tensor_slices((x_val, y_val)) \
                 .shuffle(len(y_val)) \
-                .batch(100)
-
-
+                .batch(256)
 
         history = model.fit(
             train_data.repeat(),
-            epochs=5000,
-            steps_per_epoch=50,
+            epochs=1000,
+            steps_per_epoch=500,
             validation_data=val_data.repeat(),
             validation_steps=10
         )
@@ -263,6 +259,11 @@ def split_data_set_by_component(graph, anno_keys, numb_train_components, numb_va
 
     x = np.zeros((numb_nodes, numb_features), float)
     y = np.zeros((numb_nodes, 2))
+    
+    chr = {}
+    chr_i = -1
+    chr_mask = np.zeros(numb_nodes)
+    
     mask_train = np.zeros(numb_nodes, bool)
     mask_val = np.zeros(numb_nodes, bool)
     k = 0
@@ -271,6 +272,10 @@ def split_data_set_by_component(graph, anno_keys, numb_train_components, numb_va
         for node_key in component:
             x[k] = graph.nodes[node_key].feature_vector
             tx = graph.__tx_from_key__(node_key)
+            if tx.chr not in chr:
+                chr_i += 1
+                chr.update({tx.chr : chr_i})
+            chr_mask[k] = chr_i
             txs.append([tx, graph.nodes[node_key].component_id])
             if get_tx_key(tx) in anno_keys:
                 y[k][1] = 1
@@ -281,6 +286,14 @@ def split_data_set_by_component(graph, anno_keys, numb_train_components, numb_va
             elif i in val_indices:
                 mask_val[k] = True
             k += 1
+    epsi = 0.00000000000000000000000000000000000000000000000001
+    x += epsi
+    for chr_i in chr.values():
+        i = numb_features - 31
+        current_mask = chr_mask==chr_i
+        x_max = np.log(x[current_mask,:i].max(axis=0))
+        x[current_mask,:i] = np.log(x[current_mask,:i]) - x_max
+        x[current_mask,i:] = np.log(x[current_mask,i:]) - x_max[5:36]
     return x, y, mask_train, mask_val, txs
 
 
