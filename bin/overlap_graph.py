@@ -71,7 +71,7 @@ class Node:
         # len of longest exon
         # len of shortest exon        
         # truncated tx?
-
+        # number of overlapping tx
         #### For type in intron, start stop:
             #### For src in E, P C and M:
                 # avg rel intron hint support for src in locus
@@ -88,7 +88,7 @@ class Node:
 
         
         
-        self.feature_vector = np.zeros(75)
+        self.feature_vector = np.zeros(76)
         self.dup_sources = {}
         self.evi_support = False
 
@@ -402,8 +402,10 @@ class Graph:
                     self.nodes[node_key].feature_vector[i] = 1
                     break
             i += 1
+            self.nodes[node_key].feature_vector[i] = len(self.nodes[node_key].edge_to)
+            i += 1
     
-        i = 44
+        i = 45
         if not self.component_list:
             self.connected_components()
         for component in self.component_list:
