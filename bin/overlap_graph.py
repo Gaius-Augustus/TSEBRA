@@ -47,12 +47,14 @@ class Node:
         self.feature_vector = [None] * 6
         self.evi_support = False
         self.number_predicted = 0
+        self.enforce = False
 
 class Graph:
     """
         Overlap graph that can detect and filter overlapping transcripts.
     """
-    def __init__(self, genome_anno_lst, para, filter_short=False, verbose=0):
+    def __init__(self, genome_anno_lst, para, filter_short=False, \
+        keep_tx=[], verbose=0):
         """
             Args:
                 genome_anno_lst (list(Anno)): List of Anno class objects
@@ -80,7 +82,7 @@ class Graph:
 
         self.filter_short = filter_short
 
-
+        self.keep_tx = set(keep_tx)
         # parameters for decision rule
         self.para = para
 
@@ -128,26 +130,25 @@ class Graph:
         numb_dup = {}
         for k in self.anno.keys():
             for tx in self.anno[k].get_transcript_list():
+
                 if tx.chr not in tx_start_end.keys():
                     tx_start_end.update({tx.chr : []})
                     unique_tx_keys.update({tx.chr : {}})
                 unique_key = '{}_{}_{}'.format(tx.start, tx.end, tx.strand)
-                dup = {tx.source_method}
+                dup = {tx.source_anno}
                 if unique_key in unique_tx_keys[tx.chr].keys():
                     check = False
                     coords = tx.get_type_coords('CDS')
-
-
                     for t in unique_tx_keys[tx.chr][unique_key]:
                         if coords == t.get_type_coords('CDS'):
                             if tx.utr and not t.utr:
                                 unique_tx_keys[tx.chr][unique_key].remove(t)
-                                dup.add(t.source_method)
+                                dup = dup.union(numb_dup[f"{t.source_anno};{t.id}"])
                             elif tx.utr and t.utr and tx.utr_len  > t.utr_len:
                                 unique_tx_keys[tx.chr][unique_key].remove(t)
-                                dup.add(t.source_method)
+                                dup = dup.union(numb_dup[f"{t.source_anno};{t.id}"])
                             else:
-                                numb_dup[f"{t.source_anno};{t.id}"].add(tx.source_method)
+                                numb_dup[f"{t.source_anno};{t.id}"].add(tx.source_anno)
                                 check = True
                                 break
                     if check:
@@ -164,8 +165,11 @@ class Graph:
                     self.nodes.update({key : Node(tx.source_anno, \
                         tx.id)})
                     self.nodes[key].number_predicted = len(numb_dup[key])
+                    if len(numb_dup[key].intersection(self.keep_tx)) > 0:
+                        self.nodes[key].enforce = True
                     tx_start_end[tx.chr].append([key, tx.start, 0])
                     tx_start_end[tx.chr].append([key, tx.end, 1])
+
 
         # detect overlapping nodes
         edge_count = 0
@@ -335,12 +339,13 @@ class Graph:
             Returns:
                 (list(str)): Filtered subset of component list.
         """
-        # return all ids of vertices of a graph component, that weren't excluded by the decision rule
+        # return all ids of nodes of a graph component
+        # that weren't excluded by the decision rule
         result = component.copy()
         for node_id in component:
             for e_id in self.nodes[node_id].edge_to.values():
                 node_to_remove = self.edges[e_id].node_to_remove
-                if node_to_remove:
+                if node_to_remove and not self.nodes[node_to_remove].enforce:
                     if node_to_remove in result:
                         result.remove(node_to_remove)
         return result
@@ -381,7 +386,7 @@ class Graph:
         for key in self.anno.keys():
             result.update({key : []})
         for node in self.decided_graph:
-            if self.nodes[node].evi_support:
+            if self.nodes[node].evi_support or self.nodes[node].enforce:
                 anno_id, tx_id = node.split(';')
                 result[anno_id].append([tx_id, self.nodes[node].component_id])
 
