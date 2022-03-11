@@ -93,7 +93,7 @@ def main():
     numb_val = int(len(graph.connected_components()) * 0.02)
 #x, y, mask_train, mask_val = split_data_set_by_nodes(graph, anno_keys, 2000, 500)
     x, y, mask_train, mask_val, txs = split_data_set_by_component(graph, anno_keys, numb_test, numb_val)
-    
+
 
     x_train = x[mask_train]
     y_train = y[mask_train]
@@ -261,16 +261,17 @@ def split_data_set_by_component(graph, anno_keys, numb_train_components, numb_va
 
     x = np.zeros((numb_nodes, numb_features), float)
     y = np.zeros((numb_nodes, 2))
-    
+
     chr = {}
     chr_i = -1
     chr_mask = np.zeros(numb_nodes)
-    
+
     mask_train = np.zeros(numb_nodes, bool)
     mask_val = np.zeros(numb_nodes, bool)
     k = 0
     txs = []
-    for i, component in enumerate(graph.component_list):
+    for i, component in enumerate(graph.component_list.values()):
+        print(component)
         for node_key in component:
             x[k] = graph.nodes[node_key].feature_vector
             tx = graph.__tx_from_key__(node_key)

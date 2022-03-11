@@ -9,6 +9,11 @@
 # ==============================================================
 from features import Node_features
 import numpy as np
+import tensorflow as tf
+
+
+class BatchSizeError(Exception):
+    pass
 
 class Edge:
     """
@@ -23,6 +28,71 @@ class Edge:
         self.node1 = n1_id
         self.node2 = n2_id
         self.node_to_remove = None
+        self.__numb_features__ = 9
+
+        ### feature vectors for directed edge from node n_i to node n_j
+        ### features:
+        # matching start_codon?
+        # is n_i starting before n_j?
+        # matching stop codon?
+        # is n_i ending before n_j?
+        # number of introns in n_i / numb introns in union of n_i, n_j
+        # number of introns in n_j / numb introns in union of n_i, n_j
+        # number of introns in n_i and in n_j / numb introns in union of n_i, n_j
+        # fraction of CDS of n_i that is also in n_j
+        # fraction of CDS of n_j that is also in n_i
+
+        self.feature_vector_n1_to_n2 = np.zeros(self.__numb_features__, float)
+        self.feature_vector_n2_to_n1 = np.zeros(self.__numb_features__, float)
+
+    def add_features(self, tx1, tx2):
+        coords_tx1 = {}
+        coords_tx2 = {}
+        for i, type in enumerate(["intron", "CDS", "start_codon", "stop_codon"]):
+            coords_tx1.update({type : tx1.get_type_coords(type, frame=False)})
+            coords_tx2.update({type : tx2.get_type_coords(type, frame=False)})
+
+        for i, type in enumerate(['start_codon', 'stop_codon']):
+            if coords_tx1[type] == coords_tx1[type]:
+                self.feature_vector_n1_to_n2[2*i] = 1.0
+                self.feature_vector_n2_to_n1[2*i] = 1.0
+            else:
+                if (tx1.strand == '+' and \
+                    coords_tx1[type][0][0] < coords_tx1[type][0][0]) \
+                    or (tx1.strand == '-' and \
+                    coords_tx1[type][0][0] > coords_tx1[type][0][0]):
+                    self.feature_vector_n1_to_n2[2*i+1] = 1.0
+                else :
+                    self.feature_vector_n2_to_n1[2*i+1] = 1.0
+        k = 4
+        set_tx1 = set([f'{i[0]}_{i[1]}' for i in coords_tx1['intron']])
+        set_tx2 = set([f'{i[0]}_{i[1]}' for i in coords_tx2['intron']])
+        union_size = len(set_tx1.union(set_tx2))
+        if union_size > 0:
+            intron_set_sizes = [len(set_tx1)/union_size, \
+                len(set_tx2)/union_size,
+                len(set_tx1.intersection(set_tx2))/union_size]
+            self.feature_vector_n1_to_n2[k:k+3] = intron_set_sizes
+            self.feature_vector_n2_to_n1[[k+1,k,k+2]] = intron_set_sizes
+
+        k = 7
+        i = 0
+        j = 0
+        overlap_size = 0
+        while i<len(coords_tx1['CDS']) and j<len(coords_tx2['CDS']):
+            overlap_size += max(0, min(coords_tx1['CDS'][i][1], \
+                coords_tx2['CDS'][j][1]) - max(coords_tx1['CDS'][i][0], \
+                    coords_tx2['CDS'][j][0]) + 1)
+            if coords_tx1['CDS'][i][1] < coords_tx2['CDS'][j][1]:
+                i += 1
+            else:
+                j += 1
+        self.feature_vector_n1_to_n2[k] = overlap_size / sum([c[1]-c[0]+1 \
+            for c in coords_tx1['CDS']])
+        self.feature_vector_n1_to_n2[k+1] = overlap_size / sum([c[1]-c[0]+1 \
+            for c in coords_tx2['CDS']])
+        self.feature_vector_n2_to_n1[k+1] = self.feature_vector_n1_to_n2[k]
+        self.feature_vector_n2_to_n1[k+1] = self.feature_vector_n1_to_n2[k]
 
 class Node:
     """
@@ -44,57 +114,163 @@ class Node:
         # dict of edge_ids of edges that are incident
         # self.edge_to[id of incident Node] = edge_id
         self.edge_to = {}
+        self.is_in_ref_anno = 0
         # feature vector
         # features in order:
-        # numb introns
-        # numb of gene sets in which tx of node is included
-        # len CDS
-        # len UTR
-        # len introns
-        #### For type in intron, start stop:
+        ### for type in "intron", "CDS", "3'-UTR", "5'-UTR":
+            # numb of exons with type or if type == intron: number of introns
+            # total len (in bp) of type
+            # min len of type
+            # max len of type
+
+        # CDS predicted by BRAKER1?
+        # CDS predicted by BRAKER2?
+        # CDS predicted by long-read protocol?
+
+        #### For type in intron, start, stop:
             #### For src in E, P C and M:
                 # rel intron hint support for src
             #### For src in E, P C and M:
                 # abs intron hint support for src
-        # rel intron support by neighbours
-        # abs intron support by neighbours
-        # max rel intron support by single neighbour
-        # rel start support by neighbours
-        # abs start support by neighbours
-        # rel stop support by neighbours
-        # abs stop support by neighbours
-        # tx predicted by BRAKER1
-        # tx predicted by BRAKER2
+        ### relative fraction of introns supported by any hint source
         # single exon tx?
-        # len of longest intron
-        # len of shortest intron
-        # len of longest exon
-        # len of shortest exon        
-        # truncated tx?
-        # number of overlapping tx
-        #### For type in intron, start stop:
-            #### For src in E, P C and M:
-                # avg rel intron hint support for src in locus
-            #### For src in E, P C and M:
-                # avg abs intron hint support for src in locus
-        #### Avg *** in locus:
-            # rel intron support by neighbours
-            # abs intron support by neighbours
-            # max rel intron support by single neighbour
-            # rel start support by neighbours
-            # abs start support by neighbours
-            # rel stop support by neighbours
-            # abs stop support by neighbours
-
-        
-        
-        self.feature_vector = np.zeros(76)
+        self.__numb_features__ = 45
+        self.feature_vector = np.zeros(self.__numb_features__, float)
         self.dup_sources = {}
         self.evi_support = False
 
+    def add_features(self, tx, evi):
+        """
+            Compute for all nodes the feature vector based on the evidence support by evi.
+
+            Args:
+                evi (Evidence): Evidence class object with all hints from any source.
+        """
+        coords = {}
+
+        for i, type in enumerate(["intron", "CDS", "3'-UTR", "5'-UTR"]):
+            coords.update({type : tx.get_type_coords(type, frame=False)})
+            self.feature_vector[i*4] = 1.0 * len(coords[type])
+            if self.feature_vector[i*4] > 0:
+                len_type = [c[1]-c[0]+1 for c in coords[type]]
+                self.feature_vector[i*4+1] = 1.0 * sum(len_type)
+                self.feature_vector[i*4+2] = 1.0 * min(len_type)
+                self.feature_vector[i*4+3] = 1.0 * max(len_type)
+
+        if 'anno1' in self.dup_sources:
+            self.feature_vector[16] = 1.0
+        if 'anno2' in self.dup_sources:
+            self.feature_vector[17] = 1.0
+        if 'anno3' in self.dup_sources:
+            self.feature_vector[18] = 1.0
+        k = 19
+        evi_list = {'intron' : {'E' : [], 'P': [], 'C': [], 'M': []}, \
+            'start_codon' : {'E' : [], 'P': [], 'C': [], 'M': []}, \
+            'stop_codon': {'E' : [], 'P': [], 'C': [], 'M': []}}
+        for type in ['intron', 'start_codon', 'stop_codon']:
+            for line in tx.transcript_lines[type]:
+                hint = evi.get_hint(line[0], line[3], line[4], line[2], \
+                    line[6])
+                if hint:
+                    if type == 'intron':
+                        self.feature_vector[k+24] += 1/len(coords['intron'])
+                    for key in hint.keys():
+                        if key not in evi_list[type].keys():
+                            evi_list[type].update({key : []})
+                        evi_list[type][key].append(hint[key])
+        for type, i, abs_numb in zip(['intron', 'start_codon', 'stop_codon'], \
+            range(3), [len(coords['intron']), 1, 1]) :
+            for evi_src, j in zip(['E', 'P', 'C', 'M'], range(4)):
+                if abs_numb == 0:
+                    self.feature_vector[k + i * 8 + j] = 0.0
+                else:
+                    self.feature_vector[k + i * 8 + j] = \
+                        1.0*len(evi_list[type][evi_src])/abs_numb
+                self.feature_vector[k+4 + i * 8 + j] = \
+                    sum(evi_list[type][evi_src]) * 1.0
+        k += 25
+        if len(coords['intron']) == 0:
+            self.feature_vector[k] = 1
+
+class Graph_component:
+    """
+        Connected component of Graph object.
+    """
+    def __init__(self):
+        # list of node IDs in graph component
+        self.nodes = []
+        # False if new node has been added and edges, incidence_matrix,...
+        # haven't been updated
+        self.up_to_date = True
+        self.incidence_matrix_sender = None
+        self.incidence_matrix_receiver = None
+        # list Edge() objects of all edges in component
+        self.edges = []
+        # edges (i,j) in component, where i,j are the indices from self.nodes of adjacent nodes
+        self.edge_path = []
+
+    def add_node(self, node):
+        self.nodes.append(node.id)
+        for e_id in node.edge_to.values():
+            if e_id not in self.edges:
+                self.edges.append(e_id)
+        self.up_to_date = False
+
+    def add_nodes(self, node_list):
+        for n in node_list:
+            self.add_node(n)
+
+    def update_all(self, edge_dict):
+        if not self.up_to_date:
+            self.__update_edges__(edge_dict)
+            self.__update_incidence_matrix__()
+            self.up_to_date = True
+
+    def __update_edges__(self, edge_dict):
+        if not self.up_to_date:
+            self.edge_path = []
+            for e_id in self.edges:
+                self.edge_path.append([self.nodes.index(edge_dict[e_id].node1),
+                    self.nodes.index(edge_dict[e_id].node2)])
+                self.edge_path.append([self.nodes.index(edge_dict[e_id].node2),
+                    self.nodes.index(edge_dict[e_id].node1)])
+
+    def __update_incidence_matrix__(self):
+        n = len(self.nodes)
+        m = len(self.edge_path)
+        self.incidence_matrix_sender = np.zeros((n,m), bool)
+        self.incidence_matrix_receiver = np.zeros((n,m), bool)
+        self.incidence_matrix_sender[np.array(self.edge_path)[:,0], \
+            range(m)] = True
+        self.incidence_matrix_receiver[np.array(self.edge_path)[:,1], \
+            range(m)] = True
+
+    def get_incidence_matrix_sender(self):
+        if not self.up_to_date:
+            self.__update_incidence_matrix__()
+        return self.incidence_matrix_sender
+
+    def get_incidence_matrix_receiver(self):
+        if not self.up_to_date:
+            self.__update_incidence_matrix__()
+        return self.incidence_matrix_receiver
+
+    def get_node_features(self, node_dict):
+        return np.array([node_dict[n].feature_vector for n in self.nodes])
+
+    def get_edge_features(self, edge_dict):
+        edge_features = np.array([[edge_dict[e].feature_vector_n1_to_n2, \
+            edge_dict[e].feature_vector_n2_to_n1] for e in self.edges])
+        return edge_features.reshape(-1, edge_features.shape[-1])
+
+    def get_target_label(self, node_dict):
+        target = np.zeros((len(self.nodes),2))
+        target[np.arange(len(self.nodes)),[node_dict[n].is_in_ref_anno for n in self.nodes]] = 1
+        return target
+
 class Graph:
     """
-        Overlap graph that can detect and filter overlapping transcripts.
+        Overlap (undirected) graph that can detect and filter overlapping transcripts.
     """
     def __init__(self, genome_anno_lst, verbose=0):
         """
@@ -106,7 +282,7 @@ class Graph:
         """
         # self.nodes['anno;txid'] = Node(anno, txid)
         self.nodes = {}
-
+        np.random.seed(5)
         # self.edges['ei'] = Edge()
         self.edges = {}
 
@@ -114,7 +290,7 @@ class Graph:
         self.anno = {}
 
         # list of connected graph components
-        self.component_list = []
+        self.component_list = {}
 
         # subset of all transcripts that weren't removed by the transcript comparison rule
         self.decided_graph = []
@@ -124,9 +300,15 @@ class Graph:
 
         # variables for verbose mode
         self.v = verbose
-        self.f = [[],[],[],[]]
         self.ties = 0
 
+        # list of Graph_component(), each component concists of a number of
+        # connected component, all nodes and edges of one connected component is
+        # always in the same batch and one connected component is only in one batch
+        self.batches = []
+
+        self.__features_to_norm__ = np.concatenate((np.arange(16) , \
+            np.arange(23,27), np.arange(31,35), np.arange(39, 43)))
 
         # init annotations, check for duplicate ids
         self.init_anno(genome_anno_lst)
@@ -222,14 +404,14 @@ class Graph:
                     for match in open_intervals:
                         tx1 = self.__tx_from_key__(interval[0])
                         tx2 = self.__tx_from_key__(match)
-                        if self.compare_tx_cds(tx1, tx2):
+                        if self.__compare_tx_cds__(tx1, tx2):
                             new_edge_key = f"e{edge_count}"
                             edge_count += 1
                             self.edges.update({new_edge_key : Edge(interval[0], match)})
                             self.nodes[interval[0]].edge_to.update({match : new_edge_key})
                             self.nodes[match].edge_to.update({interval[0] : new_edge_key})
 
-    def compare_tx_cds(self, tx1, tx2):
+    def __compare_tx_cds__(self, tx1, tx2):
         """
             Check if two transcripts share at least 3 adjacent protein
             coding nucleotides on the same strand and reading frame.
@@ -264,6 +446,12 @@ class Graph:
             print(self.nodes[k].edge_to.keys())
             print('\n')
 
+    def __find_component__(self, node_id, comp_id):
+        self.nodes[node_id].component_id = comp_id
+        for next_node_id in self.nodes[node_id].edge_to:
+            if not self.nodes[next_node_id].component_id:
+                self.__find_component__(next_node_id, comp_id)
+
     def connected_components(self):
         """
             Compute all clusters of connected transcripts.
@@ -273,27 +461,87 @@ class Graph:
             Returns:
                 (list(list(str))): Lists of list of all node IDs of a component.
         """
-        visited = []
-        self.component_list = []
-        component_index = 0
-        for key in list(self.nodes.keys()):
-            component = [key]
-            if key in visited:
-                continue
-            visited.append(key)
-            not_visited = list(self.nodes[key].edge_to.keys())
-            component += not_visited
-            while not_visited:
-                next_node = not_visited.pop()
-                visited.append(next_node)
-                new_nodes = [n for n in self.nodes[next_node].edge_to.keys() if n not in component]
-                not_visited += new_nodes
-                component += new_nodes
-            self.component_list.append(component)
-            component_index += 1
-            for node in component:
-                self.nodes[node].component_id = 'g_{}'.format(component_index)
+        if self.component_list:
+            return self.component_list
+
+        self.component_list = {}
+        component_index = 1
+        for key in self.nodes:
+            if not self.nodes[key].component_id:
+                c_id = f'g_{component_index}'
+                self.component_list.update({c_id : []})
+                self.__find_component__(key, f'g_{component_index}')
+                component_index += 1
+            self.component_list[self.nodes[key].component_id].append(key)
         return self.component_list
+
+
+    def create_batch(self, numb_batches, batch_size, repl=False):
+        if not self.component_list:
+            self.connected_components()
+        if not repl and numb_batches*batch_size>len(self.component_list):
+            raise BatchSizeError('ERROR: numb_batches*batch_size has to be smaller '\
+                + f'than number_connected_components. numb_batches={numb_batches} '\
+                + f'batch_size={batch_size} number_connected_components={len(self.component_list)}.')
+        components = list(self.component_list.values())
+        self.batches = [Graph_component()]
+        print(len(components))
+        for k, i in enumerate(np.random.choice(len(self.component_list), \
+            batch_size*numb_batches, replace=repl)):
+            self.batches[-1].add_nodes([self.nodes[n] for n in components[i]])
+            if ((k+1) % batch_size) == 0:
+                if len(self.batches[-1].edges) == 0:
+                    self.batches.pop()
+                else:
+                    self.batches[-1].update_all(self.edges)
+                if k+1 < batch_size*numb_batches:
+                    self.batches.append(Graph_component())
+
+
+    def get_batches_as_input_target(self, val_size=0.1):
+        # val size as fraction of numb_batches
+        input_target_train = []
+        input_target_val = []
+        numb_batches = len(self.batches)
+        val_indices = np.random.choice(numb_batches, int(val_size*numb_batches), \
+            replace=False)
+        for i, batch in enumerate(self.batches):
+            new_batch = [
+                {
+                    "input_nodes" : np.expand_dims(batch.get_node_features(self.nodes) ,0),
+                    "input_edges" : np.expand_dims(batch.get_edge_features(self.edges) ,0),
+                    "incidence_matrix_sender" : tf.expand_dims(batch.get_incidence_matrix_sender() ,0),
+                    "incidence_matrix_receiver" : tf.expand_dims(batch.get_incidence_matrix_receiver() ,0)
+                },
+                {
+                    "target_label" : np.expand_dims(batch.get_target_label(self.nodes),0)
+                }
+            ]
+            if i in val_indices:
+                input_target_val.append(new_batch)
+            else:
+                input_target_train.append(new_batch)
+        return input_target_train, input_target_val
+
+    def add_reference_anno_label(self, ref_anno):
+        """
+            Sets the value of is_in_ref_anno for each node to 1
+            if the coding sequence of the corresponding transcript matches the
+            coding sequence of a transcript in the reference anno
+
+            Args:
+                ref_anno (Anno): Anno() obeject of reference annotation
+        """
+        def create_cds_key(tx):
+            return '_'.join([tx.chr, tx.strand] + [str(c[0]) + '_' + str(c[1]) \
+                for c in tx.get_type_coords('CDS', frame=False)])
+        ref_anno_keys = []
+        for tx in ref_anno.transcripts.values():
+            ref_anno_keys.append(create_cds_key(tx))
+
+        for n in self.nodes:
+            if create_cds_key(self.__tx_from_key__(n)) in ref_anno_keys:
+                self.nodes[n].is_in_ref_anno = 1
 
     def add_node_features(self, evi):
         """
@@ -302,122 +550,28 @@ class Graph:
             Args:
                 evi (Evidence): Evidence class object with all hints from any source.
         """
+        max = np.zeros(self.__features_to_norm__.shape[-1], float)
+        epsi = 0.000000000001
         for node_key in self.nodes.keys():
             #def add_node_f:
             tx = self.__tx_from_key__(node_key)
-            self.nodes[node_key].feature_vector[0] = 1.0 * len(tx.transcript_lines['intron'])
-            self.nodes[node_key].feature_vector[1] = 1.0 * len(self.nodes[node_key].dup_sources)
-            self.nodes[node_key].feature_vector[2] = tx.cds_len * 1.0
-            self.nodes[node_key].feature_vector[3] = tx.utr_len * 1.0
-            self.nodes[node_key].feature_vector[4] = 1.0 * (tx.end - tx.start + 1 - \
-                                                tx.cds_len - tx.utr_len)
+            self.nodes[node_key].add_features(tx, evi)
+            max = np.max(np.array([max, \
+                self.nodes[node_key].feature_vector[self.__features_to_norm__]]), 0)
+        for node_key in self.nodes.keys():
+            self.nodes[node_key].feature_vector[self.__features_to_norm__] /= (max+epsi)
 
+    def add_edge_features(self):
+        """
+            Compute for all edges the feature vector based on the evidence support by evi.
+        """
+        for edge in self.edges.values():
+            #def add_node_f:
+            tx1 = self.__tx_from_key__(edge.node1)
+            tx2 = self.__tx_from_key__(edge.node2)
+            edge.add_features(tx1, tx2)
 
-            evi_list = {'intron' : {'E' : [], 'P': [], 'C': [], 'M': []}, \
-                'start_codon' : {'E' : [], 'P': [], 'C': [], 'M': []}, \
-                'stop_codon': {'E' : [], 'P': [], 'C': [], 'M': []}}
-            for type in ['intron', 'start_codon', 'stop_codon']:
-                for line in tx.transcript_lines[type]:
-                    hint = evi.get_hint(line[0], line[3], line[4], line[2], \
-                        line[6])
-                    if hint:
-                        for key in hint.keys():
-                            if key not in evi_list[type].keys():
-                                evi_list[type].update({key : []})
-                            evi_list[type][key].append(hint[key])
-            for type, i, abs_numb in zip(['intron', 'start_codon', 'stop_codon'], \
-                range(3), [self.nodes[node_key].feature_vector[0], 1, 1]) :
-                for evi_src, j in zip(['E', 'P', 'C', 'M'], range(4)):
-                    if abs_numb == 0:
-                        self.nodes[node_key].feature_vector[5 + i * 8 + j] = 0.0
-                    else:
-                        self.nodes[node_key].feature_vector[5 + i * 8 + j] = \
-                            1.0*len(evi_list[type][evi_src])/abs_numb
-                    self.nodes[node_key].feature_vector[9 + i * 8 + j] = \
-                        sum(evi_list[type][evi_src]) *1.0
-
-            i = 29
-            for type in ['intron', 'start_codon', 'stop_codon']:
-                tx_feature = set([f'{i[0]}_{i[1]}' for i in \
-                    tx.get_type_coords(type, frame=False)])
-                if len(tx_feature) == 0:
-                    self.nodes[node_key].feature_vector[i] = 0.0
-                    self.nodes[node_key].feature_vector[i+1] = 0.0
-                    self.nodes[node_key].feature_vector[i + 2] = 0.0
-                else:
-                    tx_feature_neighbours = []
-                    if type == 'intron':
-                        self.nodes[node_key].feature_vector[i + 2] = 0.0
-                    for neighbour_id in self.nodes[node_key].edge_to:
-                        tx2 = self.__tx_from_key__(neighbour_id)
-                        tx_feature2 = [f'{i[0]}_{i[1]}' for i in \
-                        tx2.get_type_coords(type, frame=False)]
-                        tx_feature_neighbours += tx_feature2
-                        if type == 'intron':
-                            intersection = len(tx_feature.intersection(set(tx_feature2)))/len(tx_feature)
-                            if intersection > self.nodes[node_key].feature_vector[i + 2]:
-                                self.nodes[node_key].feature_vector[i + 2] = intersection
-                    self.nodes[node_key].feature_vector[i] = len(tx_feature.intersection(\
-                        set(tx_feature_neighbours)))/len(tx_feature)
-                    self.nodes[node_key].feature_vector[i+1] = 0.0
-                    for f in tx_feature:
-                        self.nodes[node_key].feature_vector[i+1] += tx_feature_neighbours.count(f)
-                i += 2
-                if type == 'intron':
-                    i += 1
-            
-            i = 36
-            if 'anno1' in self.nodes[node_key].dup_sources:
-                self.nodes[node_key].feature_vector[i] = 1.0
-            i += 1
-            if 'anno2' in self.nodes[node_key].dup_sources:
-                self.nodes[node_key].feature_vector[i] = 1.0
-            i+=1
-            if len(tx.transcript_lines['intron']) == 0:
-                self.nodes[node_key].feature_vector[i] = 1                 
-                self.nodes[node_key].feature_vector[i+1] = 0
-                self.nodes[node_key].feature_vector[i+2] = 0
-            else:
-                self.nodes[node_key].feature_vector[i] = 0
-                intron_len = [c[1] - c[0] +1 for c in tx.get_type_coords('intron', frame=False)]
-                self.nodes[node_key].feature_vector[i+1] = max(intron_len)
-                self.nodes[node_key].feature_vector[i+2] = min(intron_len)
-            i += 3            
-            cds = tx.get_type_coords('CDS', frame=False)
-            cds_len = [c[1] - c[0] +1 for c in cds]
-            self.nodes[node_key].feature_vector[i] = max(cds_len)
-            self.nodes[node_key].feature_vector[i] = min(cds_len)              
-            i += 2
-            self.nodes[node_key].feature_vector[i] = 0
-            for n_id in self.nodes[node_key].edge_to:
-                tx2 = self.__tx_from_key__(n_id)
-                cds2 = tx.get_type_coords('CDS', frame=False)
-                cds2_set = set([f'{i[0]}_{i[1]}' for i in cds2])
-                if [c for c in cds2 if c[0] == cds[-1][0] and c[1]>cds[-1][1]]:
-                    print('!!!')                
-                if (set([f'{i[0]}_{i[1]}' for i in cds[:-1]]).issubset(cds2_set) \
-                        and len([c for c in cds2 if c[0] == cds[-1][0] and c[1]>cds[-1][1]])>0) \
-                    or (set([f'{i[0]}_{i[1]}' for i in cds[1:]]).issubset(cds2_set) \
-                        and len([c for c in cds2 if c[0] == cds[0][0] and c[1]>cds[0][1]])>0):
-                    self.nodes[node_key].feature_vector[i] = 1
-                    break
-            i += 1
-            self.nodes[node_key].feature_vector[i] = len(self.nodes[node_key].edge_to)
-            i += 1
-    
-        i = 45
-        if not self.component_list:
-            self.connected_components()
-        for component in self.component_list:
-            avg_support = np.zeros(31, float)
-            for node_key in component:
-                avg_support += self.nodes[node_key].feature_vector[5:36]
-            avg_support /= len(component)
-            for node_key in component:
-                self.nodes[node_key].feature_vector[i:i+31] = avg_support
-
-
-    def decide_edge(self, edge):
+    def __decide_edge__(self, edge):
         """
             Apply transcript comparison rule to two overlapping transcripts
 
@@ -433,10 +587,8 @@ class Graph:
             diff = n1.feature_vector[i] - n2.feature_vector[i]
             #print(diff)
             if diff > 0:
-                self.f[i].append(n2.id)
                 return n2.id
             elif diff < 0:
-                self.f[i].append(n1.id)
                 return n1.id
         return None
 
@@ -468,11 +620,11 @@ class Graph:
             transcript comparison rule to all components.
         """
         for key in self.edges.keys():
-            self.edges[key].node_to_remove = self.decide_edge(self.edges[key])
+            self.edges[key].node_to_remove = self.__decide_edge__(self.edges[key])
         self.decided_graph = []
         if not self.component_list:
             self.connected_components()
-        for component in self.component_list:
+        for component in self.component_list.values():
             if len(component) > 1:
                 self.decided_graph += self.decide_component(component)
             else:
@@ -501,19 +653,4 @@ class Graph:
             if self.nodes[node].evi_support:
                 anno_id, tx_id = node.split(';')
                 result[anno_id].append([tx_id, self.nodes[node].component_id])
-
-        if self.v > 0:
-            print('NODES: {}'.format(len(self.nodes.keys())))
-            f = list(map(set, self.f))
-            print('f1: {}'.format(len(f[0])))
-            u = f[0]
-            print('f2: {}'.format(len(f[1])))
-            print('f2/f1: {}'.format(len(f[1].difference(u))))
-            u = u.union(f[1])
-            print('f3: {}'.format(len(f[2])))
-            print('f3/f2/f1: {}'.format(len(f[2].difference(u))))
-            u = u.union(f[2])
-            print('f4: {}'.format(len(f[3])))
-            print('f4/f3/f2/f1: {}'.format(len(f[3].difference(u))))
-
         return result
