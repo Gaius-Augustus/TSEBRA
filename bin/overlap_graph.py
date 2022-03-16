@@ -28,7 +28,7 @@ class Edge:
         self.node1 = n1_id
         self.node2 = n2_id
         self.node_to_remove = None
-        self.__numb_features__ = 9
+        self.__numb_features__ = 23
 
         ### feature vectors for directed edge from node n_i to node n_j
         ### features:
@@ -36,16 +36,19 @@ class Edge:
         # is n_i starting before n_j?
         # matching stop codon?
         # is n_i ending before n_j?
-        # number of introns in n_i / numb introns in union of n_i, n_j
-        # number of introns in n_j / numb introns in union of n_i, n_j
-        # number of introns in n_i and in n_j / numb introns in union of n_i, n_j
+         #### For src in E, P C and M, none:
+            # number of introns in n_i / numb introns in union of n_i, n_j
+            # number of introns in n_j / numb introns in union of n_i, n_j
+            # number of introns in n_i and in n_j / numb introns in union of n_i, n_j
         # fraction of CDS of n_i that is also in n_j
         # fraction of CDS of n_j that is also in n_i
+        # start codon position difference of nj to ni if they agree on first coding DSS
+        # stop codon position difference of nj to ni if they agree on first coding ASS
 
         self.feature_vector_n1_to_n2 = np.zeros(self.__numb_features__, float)
         self.feature_vector_n2_to_n1 = np.zeros(self.__numb_features__, float)
 
-    def add_features(self, tx1, tx2):
+    def add_features(self, tx1, tx2, evi):
         coords_tx1 = {}
         coords_tx2 = {}
         for i, type in enumerate(["intron", "CDS", "start_codon", "stop_codon"]):
@@ -64,18 +67,34 @@ class Edge:
                     self.feature_vector_n1_to_n2[2*i+1] = 1.0
                 else :
                     self.feature_vector_n2_to_n1[2*i+1] = 1.0
+            
         k = 4
-        set_tx1 = set([f'{i[0]}_{i[1]}' for i in coords_tx1['intron']])
+        hints_tx1 = {'E' : [], 'P': [], 'C': [], 'M': [],  'none' : []}
+        hints_tx2 = {'E' : [], 'P': [], 'C': [], 'M': [],  'none' : []}
+        for t, h in zip([tx1, tx2], [hints_tx1, hints_tx2]):
+            for line in t.transcript_lines[type]:
+                hint = evi.get_hint(line[0], line[3], line[4], line[2], \
+                    line[6])
+                if hint:
+                    for key in hint:
+                        h[key].append([line[3], line[4]])
+                else:
+                    h['none'].append([line[3], line[4]])
+        set_tx1 = set([f'{i[0]}_{i[1]}' for i in coords_tx2['intron']])
         set_tx2 = set([f'{i[0]}_{i[1]}' for i in coords_tx2['intron']])
         union_size = len(set_tx1.union(set_tx2))
-        if union_size > 0:
-            intron_set_sizes = [len(set_tx1)/union_size, \
-                len(set_tx2)/union_size,
-                len(set_tx1.intersection(set_tx2))/union_size]
-            self.feature_vector_n1_to_n2[k:k+3] = intron_set_sizes
-            self.feature_vector_n2_to_n1[[k+1,k,k+2]] = intron_set_sizes
+        for c1, c2 in zip(hints_tx1.values(), hints_tx2.values()):
+            set_tx1 = set([f'{i[0]}_{i[1]}' for i in c1])
+            set_tx2 = set([f'{i[0]}_{i[1]}' for i in c2])
+            if union_size > 0:
+                intron_set_sizes = [len(set_tx1)/union_size, \
+                    len(set_tx2)/union_size,
+                    len(set_tx1.intersection(set_tx2))/union_size]
+                self.feature_vector_n1_to_n2[k:k+3] = intron_set_sizes
+                self.feature_vector_n2_to_n1[[k+1,k,k+2]] = intron_set_sizes
+            k += 3
 
-        k = 7
+        k = 19
         i = 0
         j = 0
         overlap_size = 0
@@ -92,7 +111,19 @@ class Edge:
         self.feature_vector_n1_to_n2[k+1] = overlap_size / sum([c[1]-c[0]+1 \
             for c in coords_tx2['CDS']])
         self.feature_vector_n2_to_n1[k+1] = self.feature_vector_n1_to_n2[k]
-        self.feature_vector_n2_to_n1[k+1] = self.feature_vector_n1_to_n2[k]
+        self.feature_vector_n2_to_n1[k] = self.feature_vector_n1_to_n2[k+1]
+        
+        k += 2
+        index = [0,-1]
+        if tx1.strand == '-':
+            index = [-1, 0]
+        for i in index:
+            j = abs(i)
+            if coords_tx1['CDS'][i][j] == coords_tx2['CDS'][i][j]:
+                self.feature_vector_n1_to_n2[k] = coords_tx2['CDS'][i][j] - coords_tx1['CDS'][i][j]
+                self.feature_vector_n2_to_n1[k] = coords_tx1['CDS'][i][j] - coords_tx2['CDS'][i][j]
+                k += 1
+        
 
 class Node:
     """
@@ -134,7 +165,8 @@ class Node:
                 # abs intron hint support for src
         ### relative fraction of introns supported by any hint source
         # single exon tx?
-        self.__numb_features__ = 45
+        # number of neighbours
+        self.__numb_features__ = 46
         self.feature_vector = np.zeros(self.__numb_features__, float)
         self.dup_sources = {}
         self.evi_support = False
@@ -191,6 +223,8 @@ class Node:
         k += 25
         if len(coords['intron']) == 0:
             self.feature_vector[k] = 1
+        k = 45
+        self.feature_vector[k] = len(self.edge_to)
 
 class Graph_component:
     """
@@ -559,9 +593,9 @@ class Graph:
             max = np.max(np.array([max, \
                 self.nodes[node_key].feature_vector[self.__features_to_norm__]]), 0)
         for node_key in self.nodes.keys():
-            self.nodes[node_key].feature_vector[self.__features_to_norm__] /= (max+epsi)
+            self.nodes[node_key].feature_vector[self.__features_to_norm__] /= np.linalg.norm(self.nodes[node_key].feature_vector[self.__features_to_norm__])
 
-    def add_edge_features(self):
+    def add_edge_features(self, evi):
         """
             Compute for all edges the feature vector based on the evidence support by evi.
         """
@@ -569,7 +603,7 @@ class Graph:
             #def add_node_f:
             tx1 = self.__tx_from_key__(edge.node1)
             tx2 = self.__tx_from_key__(edge.node2)
-            edge.add_features(tx1, tx2)
+            edge.add_features(tx1, tx2, evi)
 
     def __decide_edge__(self, edge):
         """

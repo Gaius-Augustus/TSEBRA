@@ -20,8 +20,9 @@ class ConfigFileError(Exception):
     pass
 
 config = {
-    "message_passing_iterations" : 10,
-    "latent_dim" : 64
+    "message_passing_iterations" : 1
+    ,
+    "latent_dim" : 32
 }
 
 gtf = []
@@ -33,14 +34,14 @@ out = ''
 v = 0
 quiet = False
 
-weight_class_one = 60.
+weight_class_one = 90.
 #parameter = {'intron_support' : 0, 'stasto_support' : 0, \
     #'e_1' : 0, 'e_2' : 0, 'e_3' : 0, 'e_4' : 0}
-numb_node_features = 45
-numb_edge_features = 9
+numb_node_features = 46
+numb_edge_features = 23
 
-numb_batches = 1500
-batch_size = 1
+numb_batches = 150
+batch_size = 100
 val_size = 0
 def main():
     """
@@ -96,9 +97,9 @@ def main():
     graph.add_node_features(evi)
     if not quiet:
         sys.stderr.write(f'### [{datetime.now().strftime("%H:%M:%S")}] ADD EDGE FEATURES\n')
-    graph.add_edge_features()
+    graph.add_edge_features(evi)
     graph.connected_components()
-    numb_batches = len(graph.component_list)
+    numb_batches = int(len(graph.component_list)/batch_size)
     if not quiet:
         sys.stderr.write(f'### [{datetime.now().strftime("%H:%M:%S")}] CREATE ANNO LABEL\n')
     graph.create_batch(numb_batches, batch_size)
@@ -139,10 +140,6 @@ def main():
                 combined_anno.transcripts.update({tx.id : tx})
     combined_anno.find_genes()
     combined_anno.write_anno(args.out)
-
-
-
-
 
 
 

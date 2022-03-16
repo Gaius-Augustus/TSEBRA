@@ -20,8 +20,8 @@ class ConfigFileError(Exception):
     pass
 
 config = {
-    "message_passing_iterations" : 10,
-    "latent_dim" : 64
+    "message_passing_iterations" : 1,
+    "latent_dim" : 32
 }
 
 gtf = []
@@ -34,13 +34,13 @@ v = 0
 quiet = False
 #parameter = {'intron_support' : 0, 'stasto_support' : 0, \
     #'e_1' : 0, 'e_2' : 0, 'e_3' : 0, 'e_4' : 0}
-numb_node_features = 45
-numb_edge_features = 9
+numb_node_features = 46
+numb_edge_features = 23
 
-numb_batches = 15000
-batch_size = 100
-val_size = 0.1
-weight_class_one = 10.
+numb_batches = 10000
+batch_size = 200
+val_size = 0.2
+weight_class_one = 30.
 def main():
     """
         Overview:
@@ -99,7 +99,7 @@ def main():
     graph.add_node_features(evi)
     if not quiet:
         sys.stderr.write(f'### [{datetime.now().strftime("%H:%M:%S")}] ADD EDGE FEATURES\n')
-    graph.add_edge_features()
+    graph.add_edge_features(evi)
     if not quiet:
         sys.stderr.write(f'### [{datetime.now().strftime("%H:%M:%S")}] ADD REF ANNO LABEL\n')
     graph.add_reference_anno_label(ref_anno)
@@ -111,8 +111,8 @@ def main():
     input_train, input_val = graph.get_batches_as_input_target(val_size)
     #print(input_val[0][0])
     print(len(input_train), len(input_val))
-    train_gen = SampleGenerator(0, 13500)
-    val_gen = SampleGenerator(1, 1500)
+    train_gen = SampleGenerator(0, 8000)
+    val_gen = SampleGenerator(1, 2000)
 
     # x_train = [[i[0]] for i in input_train]
     # print(len(x_train), x_train[0])
@@ -120,7 +120,7 @@ def main():
     # x_val = [[i[0]] for i in input_val]
     # y_val = [[i[1]] for i in input_val]
 
-    NUM_EPOCHS = 200
+    NUM_EPOCHS = 40
 
     GNN = make_GNN(config)
 
@@ -137,20 +137,20 @@ def main():
         return loss / config["message_passing_iterations"]
 
     def last_iteration_binary_accuracy(y_true, y_pred):
-        return acc(y_true, y_pred[-1])
+        weights = (y_true[0][:,1] * (weight_class_one-1)) + 1.
+        return acc(y_true, y_pred[-1])*weights
 
-    GNN.compile(loss=all_iterations_cee,
+    GNN.compile(loss=last_iteration_binary_accuracy,#all_iterations_cee,
                 optimizer=optimizer,
                 metrics={"target_label" : last_iteration_binary_accuracy})
-
-    #takes ~10min on GPU
-    #change config for quick results on CPU
-    history = GNN.fit(train_gen,
+    
+    #history = 
+    GNN.fit(train_gen,
                     validation_data=val_gen,
                         epochs = NUM_EPOCHS,
-                        verbose = 0)
+                        verbose = 1)
     GNN.save_weights(args.out)
-    history.history["last_iteration_binary_accuracy"][-1]
+    """history.history["last_iteration_binary_accuracy"][-1]
     _, ax = plt.subplots(ncols = 2, figsize = (15, 6))
 
     ax[0].plot(np.arange(NUM_EPOCHS), history.history["loss"], 'b', label = 'Training loss')
@@ -167,13 +167,13 @@ def main():
     ax[1].set_ylabel('loss')
     ax[1].legend()
 
-    plt.show()
+    plt.show()"""
 
 
 #define a feedforward layer
 def make_ff_layer(config):
     phi = keras.Sequential([
-            layers.Dense(config["latent_dim"], activation="relu"),
+            layers.Dense(config["latent_dim"], activation="relu",                         kernel_regularizer=tf.keras.regularizers.l1_l2(0.1)),
             layers.Dense(config["latent_dim"])])
     return phi
 
