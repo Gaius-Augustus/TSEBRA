@@ -19,11 +19,6 @@ import matplotlib.pyplot as plt
 class ConfigFileError(Exception):
     pass
 
-config = {
-    "message_passing_iterations" : 1
-    ,
-    "latent_dim" : 32
-}
 
 gtf = []
 gene_sets = []
@@ -43,24 +38,12 @@ numb_edge_features = 23
 numb_batches = 150
 batch_size = 100
 val_size = 0
+
 def main():
-    """
-        Overview:
-
-        1. Read gene predicitions from .gtf files.
-        2. Read Evidence from .gff files.
-        3. Detect overlapping transcripts.
-        4. Create feature vector (for a list of all features see features.py)
-           for all transcripts.
-        5. Compare the feature vectors of all pairs of overlapping transcripts.
-        6. Exclude transcripts based on the 'transcript comparison rule' and 5.
-        7. Remove Transcripts with low evidence support.
-        8. Create combined gene predicitions (all transcripts that weren't excluded).
-    """
-
     from genome_anno import Anno
     from overlap_graph import Graph
     from evidence import Evidence
+    from gnn import GNN
 
     global gene_sets, graph, input_test#, parameter
 
@@ -108,30 +91,12 @@ def main():
     input_test, _ = graph.get_batches_as_input_target(val_size)
     #print(input_train[0][0])
     #print(input_val[0][0])
-    GNN = make_GNN(config)
+    gnn = GNN(weight_class_one=weight_class_one)
+    gnn.compile(args.model)
 
-    optimizer = tf.keras.optimizers.Adam(learning_rate = 1e-3)
-
-    cee = tf.keras.losses.BinaryCrossentropy(reduction=tf.keras.losses.Reduction.NONE)
-    acc = tf.keras.metrics.BinaryAccuracy()
-
-    def all_iterations_cee(y_true, y_pred):
-        loss = 0
-        weights = (y_true[0][:,1] * (weight_class_one-1)) + 1.
-        for i in range(config["message_passing_iterations"]):
-            loss += tf.reduce_mean(cee(y_true, y_pred[i]) * weights) #compute loss for all iterations
-        return loss / config["message_passing_iterations"]
-
-    def last_iteration_binary_accuracy(y_true, y_pred):
-        return acc(y_true, y_pred[-1])
-
-    GNN.compile(loss=all_iterations_cee,
-                optimizer=optimizer,
-                metrics={"target_label" : last_iteration_binary_accuracy})
-    GNN.load_weights(args.model)
     combined_anno = Anno('', 'combined_annotation')
     for i in range(len(input_test)):
-        predictions = GNN(input_test[i][0])
+        predictions = gnn.predict(input_test[i][0])
         for p, id in zip(np.array(predictions[-1])[0], graph.batches[i].nodes):
             if p[1] >= 0.5:
                 tx = graph.__tx_from_key__(id)
