@@ -4,6 +4,7 @@
 #
 # TSEBRA: Transcript Selector for BRAKER
 # ==============================================================
+
 import argparse
 import sys
 import os
@@ -32,11 +33,11 @@ quiet = False
 numb_node_features = 46
 numb_edge_features = 23
 
-numb_batches = 1000
-batch_size = 5
-val_size = 0.2
-NUM_EPOCHS = 40
-weight_class_one = 30.
+numb_batches = 50000
+batch_size = 50
+val_size = 0.1
+NUM_EPOCHS = 50
+weight_class_one = 50.
 def main():
     from genome_anno import Anno
     from overlap_graph import Graph
@@ -93,9 +94,9 @@ def main():
         sys.stderr.write(f'### [{datetime.now().strftime("%H:%M:%S")}] TRANSFORM BATCHES TO INPUT TARGETS\n')
     input_train, input_val = graph.get_batches_as_input_target(val_size)
 
-
-    train_gen = SampleGenerator(0, 80)
-    val_gen = SampleGenerator(1, 20)
+    print(len(input_train), len(input_val))
+    train_gen = SampleGenerator(0, len(input_train))#int(numb_batches * (1-val_size)))
+    val_gen = SampleGenerator(1, len(input_val))#int(numb_batches * val_size))
 
 
     gnn = GNN(weight_class_one=weight_class_one)

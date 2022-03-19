@@ -32,7 +32,7 @@ out = ''
 v = 0
 quiet = False
 
-weight_class_one = 90.
+weight_class_one = 40.
 
 numb_node_features = 46
 numb_edge_features = 23
@@ -84,7 +84,8 @@ class GNN:
     #define a feedforward layer
     def make_ff_layer(self, config):
         phi = keras.Sequential([
-                layers.Dense(config["latent_dim"], activation="relu"),
+                layers.Dense(config["latent_dim"], activation="relu", \
+                kernel_regularizer=tf.keras.regularizers.l1_l2(0.1)),
                 layers.Dense(config["latent_dim"])])
         return phi
 

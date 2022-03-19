@@ -67,7 +67,7 @@ class Edge:
                     self.feature_vector_n1_to_n2[2*i+1] = 1.0
                 else :
                     self.feature_vector_n2_to_n1[2*i+1] = 1.0
-            
+
         k = 4
         hints_tx1 = {'E' : [], 'P': [], 'C': [], 'M': [],  'none' : []}
         hints_tx2 = {'E' : [], 'P': [], 'C': [], 'M': [],  'none' : []}
@@ -112,7 +112,7 @@ class Edge:
             for c in coords_tx2['CDS']])
         self.feature_vector_n2_to_n1[k+1] = self.feature_vector_n1_to_n2[k]
         self.feature_vector_n2_to_n1[k] = self.feature_vector_n1_to_n2[k+1]
-        
+
         k += 2
         index = [0,-1]
         if tx1.strand == '-':
@@ -123,7 +123,7 @@ class Edge:
                 self.feature_vector_n1_to_n2[k] = coords_tx2['CDS'][i][j] - coords_tx1['CDS'][i][j]
                 self.feature_vector_n2_to_n1[k] = coords_tx1['CDS'][i][j] - coords_tx2['CDS'][i][j]
                 k += 1
-        
+
 
 class Node:
     """
@@ -255,10 +255,10 @@ class Graph_component:
             self.add_node(n)
 
     def update_all(self, edge_dict):
-        if not self.up_to_date:
+        if not self.up_to_date and self.edges:
             self.__update_edges__(edge_dict)
             self.__update_incidence_matrix__()
-            self.up_to_date = True
+        self.up_to_date = True
 
     def __update_edges__(self, edge_dict):
         if not self.up_to_date:
