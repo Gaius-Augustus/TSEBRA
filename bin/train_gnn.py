@@ -22,6 +22,7 @@ class ConfigFileError(Exception):
 
 gtf = []
 gene_sets = []
+val_sets = []
 hintfiles = []
 anno = ''
 graph = None
@@ -33,67 +34,61 @@ quiet = False
 numb_node_features = 46
 numb_edge_features = 23
 
-numb_batches = 50000
-batch_size = 50
+numb_batches_train = 10000
+numb_batches_val = 3000
+batch_size = 128
 val_size = 0.1
-NUM_EPOCHS = 50
-weight_class_one = 50.
+NUM_EPOCHS = 25
+weight_class_one = 1.
+
 def main():
+    global gene_sets, graph, input_train, input_val, Graph, out
     from genome_anno import Anno
     from overlap_graph import Graph
     from evidence import Evidence
     from gnn import GNN
 
-    global gene_sets, graph, input_train, input_val#, parameter
+    
 
     args = parseCmd()
-    init(args)
-
+    #init(args)
+    out = args.out
+    parent_dir = args.dir
     # read gene prediciton files
     c = 1
-    for g in gtf:
-        if not quiet:
-            sys.stderr.write(f'### [{datetime.now().strftime("%H:%M:%S")}] READING GENE PREDICTION: [{g}]\n')
-        gene_sets.append(Anno(g, f'anno{c}'))
+    if not quiet:
+        sys.stderr.write(f'### [{datetime.now().strftime("%H:%M:%S")}] READING GENE SETS\n')
+    for b in ['braker1', 'braker2']:        
+        gene_sets.append(Anno(f'{parent_dir}/{b}_train.gtf', f'anno{c}'))
         gene_sets[-1].addGtf()
         gene_sets[-1].norm_tx_format()
+        val_sets.append(Anno(f'{parent_dir}/{b}_val.gtf', f'anno{c}'))
+        val_sets[-1].addGtf()
+        val_sets[-1].norm_tx_format()
+        
         c += 1
 
-    ref_anno = Anno(anno, 'reference')
+    ref_anno = Anno(f'{parent_dir}/annot_train.gtf', 'reference')
     ref_anno.addGtf()
     ref_anno.norm_tx_format()
-
+    ref_anno_val = Anno(f'{parent_dir}/annot_val.gtf', 'reference')
+    ref_anno_val.addGtf()
+    ref_anno_val.norm_tx_format()
+     
     # read hintfiles
     evi = Evidence()
-    for h in hintfiles:
+    for h in ['hints1', 'hints2']:
         if not quiet:
-            sys.stderr.write(f'### [{datetime.now().strftime("%H:%M:%S")}] READING EXTRINSIC EVIDENCE: [{h}]\n')
-        evi.add_hintfile(h)
-
-
-    # create graph with an edge for each unique transcript
-    # and an edge if two transcripts overlap
-    # two transcripts overlap if they share at least 3 adjacent protein coding nucleotides
-    graph = Graph(gene_sets, verbose=v)
-    if not quiet:
-        sys.stderr.write(f'### [{datetime.now().strftime("%H:%M:%S")}] BUILD OVERLAP GRAPH\n')
-    graph.build()
-    if not quiet:
-        sys.stderr.write(f'### [{datetime.now().strftime("%H:%M:%S")}] ADD NODE FEATURES\n')
-    graph.add_node_features(evi)
-    if not quiet:
-        sys.stderr.write(f'### [{datetime.now().strftime("%H:%M:%S")}] ADD EDGE FEATURES\n')
-    graph.add_edge_features(evi)
-    if not quiet:
-        sys.stderr.write(f'### [{datetime.now().strftime("%H:%M:%S")}] ADD REF ANNO LABEL\n')
-    graph.add_reference_anno_label(ref_anno)
-    if not quiet:
-        sys.stderr.write(f'### [{datetime.now().strftime("%H:%M:%S")}] CREATE ANNO LABEL\n')
-    graph.create_batch(numb_batches, batch_size, repl=True)
-    if not quiet:
-        sys.stderr.write(f'### [{datetime.now().strftime("%H:%M:%S")}] TRANSFORM BATCHES TO INPUT TARGETS\n')
-    input_train, input_val = graph.get_batches_as_input_target(val_size)
-
+            sys.stderr.write(f'### [{datetime.now().strftime("%H:%M:%S")}] READING EXTRINSIC EVIDENCE\n')
+        evi.add_hintfile(f'{parent_dir}/{h}_train.gff')
+    evi_val = Evidence()
+    for h in ['hints1', 'hints2']:        
+        evi_val.add_hintfile(f'{parent_dir}/{h}_val.gff')
+    
+    input_train, _ = get_batches(gene_sets, evi, ref_anno, numb_batches_train, batch_size, 0, True)
+    input_val, _ = get_batches(val_sets, evi_val, ref_anno_val, numb_batches_val, batch_size, 0)    
+    
+    set_weight()
     print(len(input_train), len(input_val))
     train_gen = SampleGenerator(0, len(input_train))#int(numb_batches * (1-val_size)))
     val_gen = SampleGenerator(1, len(input_val))#int(numb_batches * val_size))
@@ -101,9 +96,10 @@ def main():
 
     gnn = GNN(weight_class_one=weight_class_one)
     gnn.compile()
-    gnn.train(train_gen, val_gen, NUM_EPOCHS, args.out)
-    """history.history["last_iteration_binary_accuracy"][-1]
-    _, ax = plt.subplots(ncols = 2, figsize = (15, 6))
+    history = gnn.train(train_gen, val_gen, NUM_EPOCHS, args.out)
+    
+    history.history["last_iteration_binary_accuracy"][-1]
+    _, ax = plt.subplots(ncols = 2)
 
     ax[0].plot(np.arange(NUM_EPOCHS), history.history["loss"], 'b', label = 'Training loss')
     ax[0].plot(np.arange(NUM_EPOCHS), history.history["val_loss"], 'g', label = 'Validation loss')
@@ -119,8 +115,68 @@ def main():
     ax[1].set_ylabel('loss')
     ax[1].legend()
 
-    plt.show()"""
+    plt.savefig(args.out + '.png', dpi=200)
+    
+def get_batches(tx_sets, evi, ref_anno, numb_b, b_size, v_size, des=False):
+    graph = Graph(tx_sets, verbose=v)
+    if not quiet:
+        sys.stderr.write(f'### [{datetime.now().strftime("%H:%M:%S")}] BUILD OVERLAP GRAPH\n')
+    graph.build()
+    if not quiet:
+        sys.stderr.write(f'### [{datetime.now().strftime("%H:%M:%S")}] ADD NODE FEATURES\n')
+    graph.add_node_features(evi)
+    if not quiet:
+        sys.stderr.write(f'### [{datetime.now().strftime("%H:%M:%S")}] ADD EDGE FEATURES\n')
+    graph.add_edge_features(evi)
+    if not quiet:
+        sys.stderr.write(f'### [{datetime.now().strftime("%H:%M:%S")}] ADD REF ANNO LABEL\n')
+    graph.add_reference_anno_label(ref_anno)
+    if not quiet:
+        sys.stderr.write(f'### [{datetime.now().strftime("%H:%M:%S")}] CREATE ANNO LABEL\n')
+    numb_b = int(len(graph.nodes)/b_size) 
+    graph.create_batch(numb_b, b_size, repl=True)
+    if not quiet:
+        sys.stderr.write(f'### [{datetime.now().strftime("%H:%M:%S")}] TRANSFORM BATCHES TO INPUT TARGETS\n')
+    input_train, input_val = graph.get_batches_as_input_target(v_size)
+    describe_features(graph)
+    return input_train, input_val
 
+def set_weight():
+    global weight_class_one
+    a=0
+    b=0
+    for i in input_train:
+        for k in list(i[1].values())[0][0]:
+            a+=1
+            b+=k[0]
+    weight_class_one = (a-b)/b
+    print(a, b, weight_class_one)
+
+def describe_features(graph):
+    n_f = []
+    e_f = []
+    for node in graph.nodes.values():
+        n_f.append(node.feature_vector)
+    for edge in graph.edges.values():
+        e_f.append(edge.feature_vector_n1_to_n2)
+        e_f.append(edge.feature_vector_n2_to_n1)
+    n_f = np.array(n_f)
+    e_f = np.array(e_f)
+    _, ax = plt.subplots(ncols = 1, nrows=4)
+    i = int(n_f.shape[1] / 4 + 0.5)
+    for j in range(4):
+        ax[j].boxplot([n_f[:,k] for k in range(i*j, min(i*(j+1), n_f.shape[1]))])
+        ax[j].set_ylim([-3,3])
+    plt.savefig(out + 'node_features.png', dpi=200)
+    
+    _, ax = plt.subplots(ncols = 1, nrows=4)
+    i = int(e_f.shape[1] / 4 + 0.5)
+    for j in range(4):
+        ax[j].boxplot([e_f[:,k] for k in range(i*j, min(i*(j+1), e_f.shape[1]))])
+        ax[j].set_ylim([-3,3])
+    plt.savefig(out + 'edge_features.png', dpi=200)
+    
+    
 class SampleGenerator(keras.utils.Sequence):
     def __init__(self, val, epoch_len):
         self.val = val
@@ -157,14 +213,16 @@ def parseCmd():
     parser = argparse.ArgumentParser(description='TSEBRA: Transcript Selector for BRAKER\n\n' \
         + 'TSEBRA combines gene predictions by selecing ' \
         + 'transcripts based on their extrisic evidence support.')
-    parser.add_argument('-g', '--gtf', type=str, required=True,
+    """parser.add_argument('-g', '--gtf', type=str, required=True,
         help='List (separated by commas) of gene prediciton files in gtf.\n' \
             + '(e.g. gene_pred1.gtf,gene_pred2.gtf,gene_pred3.gtf)')
     parser.add_argument('-a', '--anno', type=str, required=True,
         help='')
     parser.add_argument('-e', '--hintfiles', type=str, required=True,
         help='List (separated by commas) of files containing extrinsic evidence in gff.\n' \
-            + '(e.g. hintsfile1.gff,hintsfile2.gtf,3.gtf)')
+            + '(e.g. hintsfile1.gff,hintsfile2.gtf,3.gtf)')"""
+    parser.add_argument('-d', '--dir', type=str, required=True,
+        help='')
     parser.add_argument('-o', '--out', type=str, required=True,
         help='Outputfile for the combined gene prediciton in gtf.')
     parser.add_argument('-q', '--quiet', action='store_true',

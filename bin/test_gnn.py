@@ -15,7 +15,11 @@ from tensorflow.keras import layers
 from datetime import datetime
 import matplotlib.pyplot as plt
 
-
+import tensorflow as tf
+physical_devices = tf.config.list_physical_devices('GPU') 
+for device in physical_devices:
+    tf.config.experimental.set_memory_growth(device, True)
+    
 class ConfigFileError(Exception):
     pass
 
@@ -80,14 +84,14 @@ def main():
         sys.stderr.write(f'### [{datetime.now().strftime("%H:%M:%S")}] ADD EDGE FEATURES\n')
     graph.add_edge_features(evi)
     graph.connected_components()
-    numb_batches = int(len(graph.component_list)/batch_size)
+    numb_batches = int(len(graph.nodes)/batch_size)
     if not quiet:
         sys.stderr.write(f'### [{datetime.now().strftime("%H:%M:%S")}] CREATE ANNO LABEL\n')
     graph.create_batch(numb_batches, batch_size)
     if not quiet:
         sys.stderr.write(f'### [{datetime.now().strftime("%H:%M:%S")}] TRANSFORM BATCHES TO INPUT TARGETS\n')
-    input_test, _ = graph.get_batches_as_input_target(val_size)
-    #print(input_train[0][0])
+    input_test, _,_,_ = graph.get_batches_as_input_target(val_size)
+    #print(input_test[0][0].shape)
     #print(input_val[0][0])
     gnn = GNN(weight_class_one=weight_class_one)
     gnn.compile(args.model)
@@ -95,15 +99,16 @@ def main():
     combined_anno = Anno('', 'combined_annotation')
     for i in range(len(input_test)):
         predictions = gnn.predict(input_test[i][0])
-        for p, id in zip(np.array(predictions[-1])[0], graph.batches[i].nodes):
-            if p[1] >= 0.5:
+        if i < 1:
+            print(predictions[0][:5])
+        for p, id in zip(np.array(predictions[-1][0]), graph.batches[i].nodes):
+            if p >= 0.5:
                 tx = graph.__tx_from_key__(id)
                 tx.id = tx.source_anno + '.' + tx.id
                 tx.set_gene_id(graph.nodes[id].component_id)
                 combined_anno.transcripts.update({tx.id : tx})
     combined_anno.find_genes()
     combined_anno.write_anno(args.out)
-
 
 
 def init(args):

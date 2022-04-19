@@ -42,7 +42,12 @@ class Hint:
             self.mult = attribute.split('mult=')[1].split(';')[0]
         else:
             self.mult= '1'
-
+        if 'al_score=' in attribute:
+            self.al_score = attribute.split('al_score=')[1].split(';')[0]
+            self.mult = str(int(self.mult) * float(self.al_score))
+        self.grp = ''
+        if 'grp=' in attribute:
+            self.grp = attribute.split('grp=')[1].split(';')[0]
         self.pri = ''
         if 'pri=' in attribute:
             self.pri = attribute.split('pri=')[1].split(';')[0]
@@ -106,6 +111,11 @@ class Evidence:
         # hint_keys[chr][start_end_type_strand][src] = multiplicity
         self.hint_keys = {}
         self.src = set()
+        # intron2group[intron_key] = group_name
+        self.intron2group = {}
+        
+        # group_chain[group_name][intron or CDSpart] = [hint_keys]
+        self.group_chains = {}
 
     def add_hintfile(self, path_to_hintfile):
         """
@@ -124,7 +134,19 @@ class Evidence:
                     self.hint_keys[chr].update({new_key : {}})
                 if not hint.src in self.hint_keys[chr][new_key].keys():
                     self.hint_keys[chr][new_key].update({hint.src : 0})
-                self.hint_keys[chr][new_key][hint.src] += int(hint.mult)
+                self.hint_keys[chr][new_key][hint.src] += float(hint.mult)
+                if hint.src == 'C':
+                    new_key = chr + '_' + new_key
+                    if new_key not in self.intron2group:
+                        self.intron2group.update({new_key : []})
+                    if not hint.grp in self.intron2group[new_key]:
+                        self.intron2group[new_key].append(hint.grp)
+                    if not hint.grp in self.group_chains:
+                        self.group_chains.update({hint.grp :  {'start' : [], 'stop' : [], 'intron' : [], 'CDSpart' : []}})
+                    if hint.type == 'CDSpart':
+                        new_key = [hint.start, hint.end]
+                    if not new_key in self.group_chains[hint.grp][hint.type]:
+                        self.group_chains[hint.grp][hint.type].append(new_key)        
 
     def get_hint(self, chr, start, end, type, strand):
         if type == 'start_codon':
@@ -136,3 +158,42 @@ class Evidence:
             if key in self.hint_keys[chr].keys():
                 return self.hint_keys[chr][key]
         return {}
+
+    def get_best_chain(self, chr, coords, type, strand):
+        groups = set()
+        keys = []
+        for c in coords['intron']:
+            key = f"{chr}_{c[0]}_{c[1]}_intron_{strand}"
+            keys.append(key)
+            if key in self.intron2group:
+                groups.update(set(self.intron2group[key]))
+        #if groups:
+            #print(keys)
+            #print(groups)
+        best_chain_fraction = 0
+        best_self_fraction = 0
+        if type == 'intron':
+            for g in groups:
+                chain_match = len(set(self.group_chains[g][type]).intersection(keys))
+                best_chain_fraction = max(best_chain_fraction,  chain_match / len(self.group_chains[g][type]))
+                best_self_fraction = max(best_self_fraction,  chain_match / len(keys))
+                #print(chain_match)
+                #print(best_chain_fraction, best_self_fraction)
+        elif type == 'CDSpart':
+            for g in groups:
+                chain = sorted(self.group_chains[g][type])
+                chain_match = 0
+                total_length_coords = 0
+                total_length_chain = sum([c[1]-c[0]+1 for c in chain])
+                j=0
+                for c1 in coords['CDS']:
+                    total_length_coords += c1[1] - c1[0] + 1
+                    for i in range(j, len(chain)):
+                        if chain[i][1] > c1[1]:
+                            j = i
+                            break
+                        chain_match += max(0, min(chain[i][1], c1[1]) - max(chain[i][0], c1[0]) + 1)
+                best_chain_fraction = max(best_chain_fraction,  chain_match /total_length_chain)
+                best_self_fraction = max(best_self_fraction,  chain_match /total_length_coords)
+                        
+        return best_chain_fraction, best_self_fraction
