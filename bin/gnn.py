@@ -29,7 +29,7 @@ hintfiles = []
 anno = ''
 graph = None
 out = ''
-v = 0 
+v = 0
 quiet = False
 
 numb_node_features = 39#46
@@ -46,7 +46,7 @@ class GNN:
 
         self.model = self.make_GNN(config)
         #self.model_nn = self.make_NN(config)
-        
+
         self.weight_class_one = weight_class_one
         self.cfg=cfg
         self.cee = tf.keras.losses.BinaryCrossentropy(reduction=tf.keras.losses.Reduction.NONE)
@@ -60,11 +60,11 @@ class GNN:
         #print(y_true.shape, y_pred.shape, weights.shape)
         for i in range(self.cfg["message_passing_iterations"]):
             # loss on tx level
-            loss += tf.reduce_mean(weights * tf.reshape(self.cee(y_true_floor, y_pred[i]),[-1])) 
+            loss += tf.reduce_mean(weights * tf.reshape(self.cee(y_true_floor, y_pred[i]),[-1]))
             #print(self.cee(y_true_floor, y_pred[i]).shape)
             # loss on exon level
-            loss += tf.reduce_mean(weights * self.cee(y_true_floor, y_true * y_pred[i])) 
-        #loss += tf.reduce_mean(self.cee(y_true_floor,tf.math.floor(y_pred[-1] + 0.5)) * weights)              
+            loss += tf.reduce_mean(weights * self.cee(y_true_floor, y_true * y_pred[i]))
+        #loss += tf.reduce_mean(self.cee(y_true_floor,tf.math.floor(y_pred[-1] + 0.5)) * weights)
         return loss / self.cfg["message_passing_iterations"]
 
     def last_iteration_binary_accuracy(self, y_true, y_pred):
@@ -74,10 +74,10 @@ class GNN:
         loss = 0
         y_true_floor = tf.math.floor(y_true)
         weights = tf.reshape(y_true_floor[0] * (self.weight_class_one-1.) + 1., [-1])
-        loss += tf.reduce_mean(weights * tf.reshape(self.cee(y_true_floor, y_pred[-1]),[-1])) 
+        loss += tf.reduce_mean(weights * tf.reshape(self.cee(y_true_floor, y_pred[-1]),[-1]))
         loss += tf.reduce_mean(weights * self.cee(y_true_floor, y_true * y_pred[-1]))
         return loss
-    
+
     def compile(self, weights=''):
         optimizer = tf.keras.optimizers.Adam(learning_rate = self.learning_rate)
         self.model.compile(loss=self.all_iterations_cee,
@@ -85,7 +85,7 @@ class GNN:
             metrics={"target_label" : self.last_iteration_binary_accuracy})
         if weights:
             self.model.load_weights(weights)
-        
+
     def compile_nn(self, weights=''):
         optimizer = tf.keras.optimizers.Adam(learning_rate = self.learning_rate)
         self.model_nn.compile(loss=self.nn_cee,
@@ -100,8 +100,8 @@ class GNN:
     def predict_nn(self, input):
         return self.model_nn(input)
 
-    def train(self, train, val, num_epochs=10, save_path=''):       
-        
+    def train(self, train, val, num_epochs=10, save_path=''):
+
         history = self.model.fit(train,
             validation_data=val,
                 epochs = num_epochs,
@@ -116,7 +116,7 @@ class GNN:
                 verbose = 1)
         self.model.save_weights(save_path + '_nn')
         return history
-    
+
     #define a feedforward layer
     def make_ff_layer(self, config):
         phi = keras.Sequential([
@@ -132,7 +132,7 @@ class GNN:
         ])
         return phi
 
-    def make_NN(self, config):        
+    def make_NN(self, config):
         V = keras.Input(shape=(None, numb_node_features), name="input_nodes", batch_size=1)
         phi = keras.Sequential([
                 layers.Dense(config["latent_dim"], activation="relu", \
@@ -143,12 +143,12 @@ class GNN:
                             ),
                 layers.Dense(1, activation="sigmoid")])
         target_label = [phi(V)]
-        
+
         model = keras.Model(inputs=[V],
                             outputs=[layers.Lambda(lambda x: x, name="target_label")(tf.stack(target_label))])
         return model
-        
-        
+
+
     def make_GNN(self, config):
         #define the inputs
         #we use a batch size of 1 since we implemented batching
@@ -160,10 +160,10 @@ class GNN:
                           batch_size=1)
         Ir = keras.Input(shape=(None,None), name="incidence_matrix_receiver",
                           batch_size=1)
-        
-        #bias_encoder = self.make_ff_layer(config)        
+
+        #bias_encoder = self.make_ff_layer(config)
         node_encoder = self.make_ff_layer(config)
-        edge_encoder = self.make_ff_layer(config)        
+        edge_encoder = self.make_ff_layer(config)
         node_updater = self.make_ff_layer(config)
         edge_updater = self.make_ff_layer(config)
         node_decoder = layers.Dense(1, activation="sigmoid")
@@ -180,11 +180,11 @@ class GNN:
 
         #step 2: message passing
         for _ in range(config["message_passing_iterations"]):
-            
+
             #for each node, sum outgoing and incoming edges (separately)
             V_Es = tf.matmul(Is, E_enc)
             V_Er = tf.matmul(Ir, E_enc)
-            
+
             #update all nodes based on current state and aggregated edge states
             #V_concat = tf.concat([V_enc, V_Es, V_Er, bias_enc], axis=-1)
             V_concat = tf.concat([V_enc, V_Es, V_Er], axis=-1)

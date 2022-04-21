@@ -111,9 +111,9 @@ class Evidence:
         # hint_keys[chr][start_end_type_strand][src] = multiplicity
         self.hint_keys = {}
         self.src = set()
-        # intron2group[intron_key] = group_name
-        self.intron2group = {}
-        
+        # coord2group[type][coord_key] = group_name
+        self.coord2group = {}
+
         # group_chain[group_name][intron or CDSpart] = [hint_keys]
         self.group_chains = {}
 
@@ -137,16 +137,19 @@ class Evidence:
                 self.hint_keys[chr][new_key][hint.src] += float(hint.mult)
                 if hint.src == 'C':
                     new_key = chr + '_' + new_key
-                    if new_key not in self.intron2group:
-                        self.intron2group.update({new_key : []})
-                    if not hint.grp in self.intron2group[new_key]:
-                        self.intron2group[new_key].append(hint.grp)
+                    if not hint.type in self.coord2group: self.coord2group[type] = {}
+                    if new_key not in self.coord2group[type]:
+                        self.coord2group[type][new_key] = []
+                    if not hint.grp in self.coord2group[type][new_key]:
+                        self.coord2group[type][new_key].append(hint.grp)
                     if not hint.grp in self.group_chains:
-                        self.group_chains.update({hint.grp :  {'start' : [], 'stop' : [], 'intron' : [], 'CDSpart' : []}})
+                        self.group_chains.update({hint.grp :
+                            {'start' : [], 'stop' : [],
+                            'intron' : [], 'CDSpart' : []}})
                     if hint.type == 'CDSpart':
                         new_key = [hint.start, hint.end]
                     if not new_key in self.group_chains[hint.grp][hint.type]:
-                        self.group_chains[hint.grp][hint.type].append(new_key)        
+                        self.group_chains[hint.grp][hint.type].append(new_key)
 
     def get_hint(self, chr, start, end, type, strand):
         if type == 'start_codon':
@@ -159,14 +162,24 @@ class Evidence:
                 return self.hint_keys[chr][key]
         return {}
 
+    def get_matching_chains(self, chr, coords, strand):
+        #chain is matching if eiter start/stop-codon or at least one intron of tx matches
+        matches = []
+        for type in ['intron', 'start_codon', 'stop_codon']:
+            for c in coords[type]:
+                key = f"{chr}_{c[0]}_{c[1]}_{type}_{strand}"
+                if key in self.coord2group[type]:
+                    matches += self.coord2group[type]
+        return list(set(matches))
+
     def get_best_chain(self, chr, coords, type, strand):
         groups = set()
         keys = []
         for c in coords['intron']:
             key = f"{chr}_{c[0]}_{c[1]}_intron_{strand}"
             keys.append(key)
-            if key in self.intron2group:
-                groups.update(set(self.intron2group[key]))
+            if key in self.coord2group['intron']:
+                groups.update(set(self.coord2group['intron'][key]))
         #if groups:
             #print(keys)
             #print(groups)
@@ -195,5 +208,5 @@ class Evidence:
                         chain_match += max(0, min(chain[i][1], c1[1]) - max(chain[i][0], c1[0]) + 1)
                 best_chain_fraction = max(best_chain_fraction,  chain_match /total_length_chain)
                 best_self_fraction = max(best_self_fraction,  chain_match /total_length_coords)
-                        
+
         return best_chain_fraction, best_self_fraction

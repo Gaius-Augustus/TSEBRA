@@ -8,6 +8,7 @@
 import os
 import sys
 import csv
+import numpy as np
 
 class NotGtfFormat(Exception):
     pass
@@ -43,6 +44,9 @@ class Transcript:
         self.source_method = ''
         self.utr = False
 
+        # # self.hints[type][startcoord_endcoord][src] = hint_multiplicity
+        # self.hints = {'intron' : {}, 'start_codon' : {}, 'stop_codon' : {}}
+
     def add_line(self, line):
         """
             Add a single line from the gtf file to the transcript data structure.
@@ -73,6 +77,17 @@ class Transcript:
 
     def set_gene_id(self, new_gene_id):
         self.gene_id = new_gene_id
+
+#     def add_evidence(self, evi):
+#         for type in ['intron', 'start_codon', 'stop_codon']:
+#             if type not in self.hints: self.hints[type] = {}
+#             for line in self.transcript_lines[type]:
+#                 hint = evi.get_hint(line[0], line[3], line[4], line[2], \
+#                     line[6])
+#                 if hint:
+#                     all = 0
+#                     coord_key = f'{line[3]}_{line[4]}'
+#                     self.hints[type][coord_key] = hint'
 
     def get_type_coords(self, type, frame=True):
         """
@@ -164,6 +179,8 @@ class Transcript:
         self.find_transcript()
         # add start/stop codon line
         self.find_start_stop_codon()
+        for type in ['intron', 'CDS']:
+            _ = self.get_type_coords(type, frame=False)
         return True
 
     def check_cds_exons(self):

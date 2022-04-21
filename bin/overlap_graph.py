@@ -28,14 +28,11 @@ class Edge:
         self.node1 = n1_id
         self.node2 = n2_id
         self.node_to_remove = None
-        self.__numb_features__ = 24
+        self.__numb_features__ = 230
 
         ### feature vectors for directed edge from node n_i to node n_j
         ### features:
-        # matching start_codon?
-        # is n_i starting before n_j?
-        # matching stop codon?
-        # is n_i ending before n_j?
+
         # numb introns in union
          #### For src in E, P, C and M, all:
             # number of introns in n_i / numb introns in union of n_i, n_j
@@ -44,102 +41,117 @@ class Edge:
         # fraction of CDS of n_i that is also in n_j
         # fraction of CDS of n_j that is also in n_i !
         # start codon position difference of nj to ni if they agree on first coding DSS
-        # stop codon position difference of nj to ni if they agree on last coding ASS 
+        # stop codon position difference of nj to ni if they agree on last coding ASS
 
         self.feature_vector_n1_to_n2 = np.zeros(self.__numb_features__, float)
         self.feature_vector_n2_to_n1 = np.zeros(self.__numb_features__, float)
 
-    def add_features(self, tx1, tx2, evi):
-        coords_tx1 = {}
-        coords_tx2 = {}
-        for i, type in enumerate(["intron", "CDS", "start_codon", "stop_codon"]):
-            coords_tx1.update({type : tx1.get_type_coords(type, frame=False)})
-            coords_tx2.update({type : tx2.get_type_coords(type, frame=False)})            
-        #print('introns tx1', coords_tx1['intron'], tx1.transcript_lines['intron'])
-        #print('introns tx2', coords_tx2['intron'], tx2.transcript_lines['intron'])
+    def add_features(self, tx1, tx2, n1, n2, evi):
+        k=0
+        ### for codon in start/stop_codon
+            # 1, if codon of ni and nj matches
+            # 1, if n_i is starting upstream(start_codon) or ending downstream(stop_codon)
+            # for src in P, C, M
+                # 1, if codon of ni is supported and not of nj
+                # 1, if codon of nj is supported and not of ni
+            # start codon position difference of nj to ni if they agree on first coding DSS
+            # stop codon position difference of nj to ni if they agree on last coding ASS
         for i, type in enumerate(['start_codon', 'stop_codon']):
-            if coords_tx1[type] == coords_tx2[type]:
-                self.feature_vector_n1_to_n2[2*i] = 1.0
-                self.feature_vector_n2_to_n1[2*i] = 1.0
-            elif coords_tx1[type] and coords_tx2[type]:                
+            if n1.coords[type] == n2.coords[type]:
+                self.feature_vector_n1_to_n2[k] = 1.0
+                self.feature_vector_n2_to_n1[k] = 1.0
+            elif n1.coords[type] and n2.coords[type]:
                 if (tx1.strand == '+' and \
-                    coords_tx1[type][0][0] < coords_tx2[type][0][0]) \
+                    n1.coords[type][0][0] < n2.coords[type][0][0]) \
                     or (tx1.strand == '-' and \
-                    coords_tx1[type][0][0] > coords_tx2[type][0][0]):
-                    self.feature_vector_n1_to_n2[2*i+1] = 1.0
+                    n1.coords[type][0][0] > n2.coords[type][0][0]):
+                    self.feature_vector_n1_to_n2[k+1] = 1.0
                 else :
-                    self.feature_vector_n2_to_n1[2*i+1] = 1.0
+                    self.feature_vector_n2_to_n1[k+1] = 1.0
+            k+=2
+            for src in ['P', 'C', 'M']:
+                if n1.hints[type] and not n2.hints[type]:
+                    self.feature_vector_n1_to_n2[k] = 1.0
+                    self.feature_vector_n2_to_n1[k+1] = 1.0
+                elif n2.hints[type] and not n1.hints[type]:
+                    self.feature_vector_n1_to_n2[k+1] = 1.0
+                    self.feature_vector_n2_to_n1[k] = 1.0
+                k+=2
+            index = [0,-1]
+            if tx1.strand == '-':
+                index = [-1, 0]
+            for i in index:
+                j = abs(i)
+                if n1.coords['CDS'][i][i+1] == n2.coords['CDS'][i][i+1]:
+                    self.feature_vector_n1_to_n2[k] = n2.coords['CDS'][i][j] - n1.coords['CDS'][i][j]
+                    self.feature_vector_n2_to_n1[k] = n1.coords['CDS'][i][j] - n2.coords['CDS'][i][j]
+                k += 1
 
-        k = 4
-        hints_tx1 = {'E' : [], 'P': [], 'C': [], 'M': [],  'all' : []}
-        hints_tx2 = {'E' : [], 'P': [], 'C': [], 'M': [],  'all' : []}
-        for t, h in zip([tx1, tx2], [hints_tx1, hints_tx2]):
-            for line in t.transcript_lines['intron']:
-                hint = evi.get_hint(line[0], line[3], line[4], line[2], \
-                    line[6])
-                #print('hint', hint)
-                if hint:
-                    for key in hint:
-                        h[key].append([line[3], line[4]])                
-                h['all'].append([line[3], line[4]])
-        #print(hints_tx1, hints_tx2)
-        set_tx1 = set([f'{i[0]}_{i[1]}' for i in coords_tx1['intron']])
-        set_tx2 = set([f'{i[0]}_{i[1]}' for i in coords_tx2['intron']])
+        set_tx1 = set([f'{i[0]}_{i[1]}' for i in n1.coords['intron']])
+        set_tx2 = set([f'{i[0]}_{i[1]}' for i in n2.coords['intron']])
         union_size = len(set_tx1.union(set_tx2))
-        self.feature_vector_n1_to_n2[k] = union_size
-        k += 1
-        #print('sets', set_tx1, set_tx2, union_size)
-        for c1, c2 in zip(hints_tx1.values(), hints_tx2.values()):
-            set_tx1 = set([f'{i[0]}_{i[1]}' for i in c1])
-            set_tx2 = set([f'{i[0]}_{i[1]}' for i in c2])
-            #print('sets', set_tx1, set_tx2, union_size)
-            if union_size > 0:
-                intron_set_sizes = [len(set_tx1)/union_size, \
-                    len(set_tx2)/union_size,
-                    len(set_tx1.intersection(set_tx2))/union_size]
-                self.feature_vector_n1_to_n2[k:k+3] = intron_set_sizes
-                #self.feature_vector_n1_to_n2[k] = intron_set_sizes[0]
-                #self.feature_vector_n1_to_n2[k+1] = intron_set_sizes[2]
-                self.feature_vector_n2_to_n1[[k+1,k,k+2]] = intron_set_sizes
-                #self.feature_vector_n2_to_n1[k] = intron_set_sizes[1]
-                #self.feature_vector_n2_to_n1[k+1] = intron_set_sizes[2]
-            k += 3
-            #k+=2
-        #print(self.feature_vector_n1_to_n2[4:19], self.feature_vector_n2_to_n1[4:19], '\n\n\n')
-        #k = 20
-        #k += 3
+
+        # numb introns in union
+        # numb introns in n_i
+        # numb introns in n_j
+        self.feature_vector_n1_to_n2[k] = self.feature_vector_n2_to_n1[k] = union_size
+        self.feature_vector_n1_to_n2[k+1] = self.feature_vector_n2_to_n1[k+2] \
+            = union_size / len(n1.coords['intron'])
+        self.feature_vector_n1_to_n2[k+2] = self.feature_vector_n2_to_n1[k+1] \
+            = union_size / len(n2.coords['intron'])
+        k += 3
+
+
+        ### for introns in union, in tx1 and not in tx2, in tx2 and not in tx1:
+            ### for src in E, P, C, M, and any:
+                # rel support of introns
+                # abs support of introns (log10)
+                # intron with min support (log10)
+                # intron with max support (log10)
+                # std of intron support (log10)
+                # entropy of intron support (log10)
+        intron_sets = [set_tx1.union(set_tx2), set_tx1.difference(set_tx2),
+            set_tx2.difference(set_tx1)]
+        for set, hints in zip(intron_sets, [n1.hints, n1.hints, n2.hints]):
+            for evi_src in ['E', 'P', 'C', 'M', 'all']:
+                current_hints = [hints['intron'][s][evi_src] for s in set]
+                self.feature_vector_n1_to_n2[k] = len(current_hints) / len(set)
+                self.feature_vector_n1_to_n2[k+1] = np.log10(np.sum(current_hints))
+                self.feature_vector_n1_to_n2[k+2] = np.log10(np.min(current_hints))
+                self.feature_vector_n1_to_n2[k+3] = np.log10(np.max(current_hints))
+                self.feature_vector_n1_to_n2[k+4] = np.log10(np.std(current_hints))
+                p = np.array(current_hints)/np.sum(current_hints)
+                self.feature_vector_n1_to_n2[k+5] = np.sum(p * np.log10(p) / np.log10(len(set)))
+                k+=6
+        self.feature_vector_n2_to_n1[k-90 : k-60] = self.feature_vector_n1_to_n2[k-90 : k-60]
+        self.feature_vector_n2_to_n1[k-60 : k-30] = self.feature_vector_n1_to_n2[k-30 : k]
+        self.feature_vector_n2_to_n1[k-30 : k] = self.feature_vector_n1_to_n2[k-60 : k-30]
+
         i = 0
         j = 0
         overlap_size = 0
-        while i<len(coords_tx1['CDS']) and j<len(coords_tx2['CDS']):
-            overlap_size += max(0, min(coords_tx1['CDS'][i][1], \
-                coords_tx2['CDS'][j][1]) - max(coords_tx1['CDS'][i][0], \
-                    coords_tx2['CDS'][j][0]) + 1)
-            if coords_tx1['CDS'][i][1] < coords_tx2['CDS'][j][1]:
+        while i<len(n1.coords['CDS']) and j<len(n2.coords['CDS']):
+            overlap_size += max(0, min(n1.coords['CDS'][i][1], \
+                n2.coords['CDS'][j][1]) - max(n1.coords['CDS'][i][0], \
+                    n2.coords['CDS'][j][0]) + 1)
+            if n1.coords['CDS'][i][1] < n2.coords['CDS'][j][1]:
                 i += 1
             else:
                 j += 1
+        # fraction of CDS of n_i that is also in n_j
+        # fraction of CDS of n_j that is also in n_i
         self.feature_vector_n1_to_n2[k] = overlap_size / sum([c[1]-c[0]+1 \
-            for c in coords_tx1['CDS']])
+            for c in n1.coords['CDS']])
         self.feature_vector_n1_to_n2[k+1] = overlap_size / sum([c[1]-c[0]+1 \
-            for c in coords_tx2['CDS']])
+            for c in n2.coords['CDS']])
         self.feature_vector_n2_to_n1[k+1] = self.feature_vector_n1_to_n2[k]
         self.feature_vector_n2_to_n1[k] = self.feature_vector_n1_to_n2[k+1]
         #self.feature_vector_n2_to_n1[k] = overlap_size / sum([c[1]-c[0]+1 \
             #for c in coords_tx2['CDS']])
 
         k += 2
-        #k += 1
-        index = [0,-1]
-        if tx1.strand == '-':
-            index = [-1, 0]
-        for i in index:
-            j = abs(i)
-            if coords_tx1['CDS'][i][i+1] == coords_tx2['CDS'][i][i+1]:
-                self.feature_vector_n1_to_n2[k] = coords_tx2['CDS'][i][j] - coords_tx1['CDS'][i][j]
-                self.feature_vector_n2_to_n1[k] = coords_tx1['CDS'][i][j] - coords_tx2['CDS'][i][j]
-                k += 1
-
+        self.feature_vector_n1_to_n2[k:] = self.feature_vector_n1_to_n2[:k]
+        self.feature_vector_n2_to_n1[k:] = self.feature_vector_n2_to_n1[:k]
 
 class Node:
     """
@@ -170,11 +182,6 @@ class Node:
             # total len (in bp) of type
             # min len of type
             # max len of type
-
-        # CDS predicted by BRAKER1?
-        # CDS predicted by BRAKER2?
-        # CDS predicted by long-read protocol?
-
         #### For type in intron, start, stop:
             #### For src in E, P C and M:
                 # rel intron hint support for src
@@ -185,10 +192,81 @@ class Node:
         # for type in intron, CDS
             # max (numb. of type matching a protein chain / numb. of type in chain)
             # max (numb. of type matching a protein chain / numb. of type in tx)
-        self.__numb_features__ = 39#46
+        self.__numb_features__ = 162#39#46
         self.feature_vector = np.zeros(self.__numb_features__, float)
         self.dup_sources = {}
         self.evi_support = False
+        # self.hints[type][startcoord_endcoord][src] = hint_multiplicity
+        self.hints = {}
+        # self.hints_sorted_by_src[type][src] = [log10(hint_multiplicity)]
+        self.hints_sorted_by_src = {}
+        # self.coords[type] = [[starcoord, endcoord]]
+        # self.cdspart_hints[groupID][cds_index] = [[overlap_start, overlap_end]]
+        self.cdspart_hints = {}
+        self.coords = {}
+        self.best_chain = ''
+        # list of group IDs of matching protein chains
+        self.matching_chains = []
+
+    def add_evidence(self, tx, evi):
+        for type in ["intron", "CDS", 'start_codon', 'stop_codon']:
+            self.coords.update({type : tx.get_type_coords(type, frame=False)})
+
+        for type in ['intron', 'start_codon', 'stop_codon']:
+            if type not in self.hints: self.hints[type] = {}
+            if type not in self.hints_sorted_by_src: self.hints_sorted_by_src[type] = {}
+            for line in tx.transcript_lines[type]:
+                hint = evi.get_hint(line[0], line[3], line[4], line[2], \
+                    line[6])
+                if hint:
+                    all = 0
+                    coord_key = f'{line[3]}_{line[4]}'
+                    self.hints[type][coord_key] = hint
+                    all = 0
+                    for key in hint:
+                        if key not in self.hints_sorted_by_src[type]:
+                            self.hints_sorted_by_src[type][key] = []
+                        self.hints_sorted_by_src[type][key].append(np.log10(hint[key]))
+                        all +=hint[key]
+                    if type == 'intron':
+                        if not 'all' in self.hints_sorted_by_src[type]:
+                            self.hints_sorted_by_src[type]['all'] = []
+                        self.hints_sorted_by_src[type]['all'].append(np.log10(all))
+
+        self.matching_chains = evi.get_matching_chains[tx.chr, self.coords, tx.strand]
+        intron_keys = [f"{tx.chr}_{c[0]}_{c[1]}_intron_{tx.strand}"
+            for c in self.coords['intron']]
+        start_stop_keys = [f"{tx.chr}_{c[0]}_{c[1]}_start_{tx.strand}"
+            for c in self.coords['start_codon']]
+        start_stop_keys += [f"{tx.chr}_{c[0]}_{c[1]}_stop_{tx.strand}"
+            for c in self.coords['stop_codon']]
+        self.best_chain = ''
+        best_chain_match = 0
+        best_border_match = 0
+        for group in matching_chains:
+            chain_match = len(set(evi.group_chains[g][type]).intersection(intron_keys))
+            border_match = len(set(evi.group_chains[g]['start'] +
+                evi.group_chains[g]['stop']).intersection(start_stop_keys))
+            if chain_match < best_chain_match:
+                continue
+            elif chain_match == best_chain_match and border_match < best_border_match:
+                    continue
+            best_chain_match = chain_match
+            best_border_match = border_match
+            self.best_chain = group
+
+        for group in matching_chains:
+            chain = sorted(self.group_chains[g]['CDSpart'])
+            chain_match = 0
+            j=0
+            self.cdspart_hints[group] = []
+            for c1 in self.coords['CDS']:
+                self.cdspart_hints[group].append([])
+                for i in range(j, len(chain)):
+                    if chain[i][1] > c1[1]:
+                        j = i
+                        break
+                    self.cdspart_hints[group].append([max(chain[i][0], c1[0]), min(chain[i][1], c1[1])])
 
     def add_features(self, tx, evi):
         """
@@ -197,60 +275,154 @@ class Node:
             Args:
                 evi (Evidence): Evidence class object with all hints from any source.
         """
-        coords = {}
+        #coords = {}
         k = 0
+        ### for type in "intron", "CDS":
+            # numb of exons with type or if type == intron: number of introns
+            # total len (in bp) of type
+            # min len of type
+            # max len of type
+            # std of lengths of type
         for i, type in enumerate(["intron", "CDS"]):#, "3'-UTR", "5'-UTR"]):
-            coords.update({type : tx.get_type_coords(type, frame=False)})            
-            self.feature_vector[i*4] = 1.0 * len(coords[type])
-            if self.feature_vector[i*4] > 0:
-                len_type = [c[1]-c[0]+1 for c in coords[type]]
-                self.feature_vector[i*4+1] = 1.0 * sum(len_type)
-                self.feature_vector[i*4+2] = 1.0 * min(len_type)
-                self.feature_vector[i*4+3] = 1.0 * max(len_type)
-        """if 'anno1' in self.dup_sources:
+            #coords.update({type : tx.get_type_coords(type, frame=False)})
+            self.feature_vector[i*6] = 1.0 * len(self.coords[type])
+            if self.feature_vector[i*6] > 0:
+                len_type = [c[1]-c[0]+1 for c in self.coords[type]]
+                self.feature_vector[i*6+1] = np.log10(np.sum(len_type))
+                self.feature_vector[i*6+2] = np.log10(np.min(len_type))
+                self.feature_vector[i*6+3] = np.log10(np.max(len_type))
+                self.feature_vector[i*6+4] = np.log10(np.std(len_type))
+            k+=5
+
+        """
+        # CDS predicted by BRAKER1?
+        # CDS predicted by BRAKER2?
+        # CDS predicted by long-read protocol?
+        if 'anno1' in self.dup_sources:
             self.feature_vector[16] = 1.0
         if 'anno2' in self.dup_sources:
             self.feature_vector[17] = 1.0
         if 'anno3' in self.dup_sources:
             self.feature_vector[18] = 1.0"""
-        
-        
-        k += 8
+
+        # numb. input gene sets that include tx
         self.feature_vector[k] =  len(self.dup_sources)
         k+=1
-        evi_list = {'intron' : {'E' : [], 'P': [], 'C': [], 'M': []}, \
-            'start_codon' : {'E' : [], 'P': [], 'C': [], 'M': []}, \
-            'stop_codon': {'E' : [], 'P': [], 'C': [], 'M': []}}
-        for type in ['intron', 'start_codon', 'stop_codon']:
-            for line in tx.transcript_lines[type]:
-                hint = evi.get_hint(line[0], line[3], line[4], line[2], \
-                    line[6])
-                if hint:
-                    if type == 'intron':
-                        self.feature_vector[k+24] += 1/len(coords['intron'])
-                    for key in hint.keys():
-                        if key not in evi_list[type].keys():
-                            evi_list[type].update({key : []})
-                        evi_list[type][key].append(hint[key])
-        for type, i, abs_numb in zip(['intron', 'start_codon', 'stop_codon'], \
-            range(3), [len(coords['intron']), 1, 1]) :
-            for evi_src, j in zip(['E', 'P', 'C', 'M'], range(4)):
-                if abs_numb == 0:
-                    self.feature_vector[k + i * 8 + j] = 0.0
-                else:
-                    self.feature_vector[k + i * 8 + j] = \
-                        1.0*len(evi_list[type][evi_src])/abs_numb
-                self.feature_vector[k+4 + i * 8 + j] = \
-                    sum(evi_list[type][evi_src]) * 1.0
-        k += 25
-        if len(coords['intron']) == 0:
+
+        ### relative fraction of introns supported by any hint source
+        self.feature_vector[k] = len(self.hints['intron'])/len(self.coords['intron'])
+        k += 1
+
+        #### For type in intron, start, stop:
+            #### For src in E, P C and M:
+                # rel type hint support for src
+                # abs type hint support for src
+
+        for type, abs_numb in zip(['intron', 'start_codon', 'stop_codon'], \
+            [len(self.coords['intron']), 1, 1]) :
+            for evi_src in ['E', 'P', 'C', 'M']:
+                if abs_numb > 0:
+                    self.feature_vector[k] = \
+                        1.0*len(self.hints_sorted_by_src[type][evi_src])/abs_numb
+                    self.feature_vector[k+1] = \
+                        np.log10(np.sum(10**self.hints_sorted_by_src[type][evi_src]))
+                k+=2
+
+        #### For src in E, P, C, M, and any:
+            # Entropy H for intron hint of source src
+            # min absolute type hint support for src
+            # max absolute type hint support for src
+            # std absolute type hint support for src
+        for evi_src in ['E', 'P', 'C', 'M', 'all']:
+            if len(self.coords['intron']) > 0:
+                p = np.array(self.hints_sorted_by_src['intron'][evi_src])/np.sum(self.hints_sorted_by_src['intron'][evi_src])
+                self.feature_vector[k] = np.sum(p * np.log10(p) / np.log10(len(coords['intron'])))
+                self.feature_vector[k+1] = np.min(self.hints_sorted_by_src['intron'][evi_src])
+                self.feature_vector[k+2] = np.max(self.hints_sorted_by_src['intron'][evi_src])
+                self.feature_vector[k+3] = np.std(self.hints_sorted_by_src['intron'][evi_src])
+            k+=4
+
+        # 1, if tx is intronless
+        if len(self.coords['intron']) == 0:
             self.feature_vector[k] = 1
         k += 1
-        self.feature_vector[k:k+2] = evi.get_best_chain(tx.chr, coords, 'intron', tx.strand)
-        k += 2
-        self.feature_vector[k:k+2] = evi.get_best_chain(tx.chr, coords, 'CDSpart', tx.strand)
-        
-        #self.feature_vector[k] = len(self.edge_to)
+
+        # number of matching_chains
+        self.feature_vector[k] = len(self.matching_chains)
+        k += 1
+
+        ### start/stop_codon match best_chain
+        for s in ['start', 'stop']:
+            if [f"{tx.chr}_{c[0]}_{c[1]}_start_{tx.strand}"
+                for c in self.coords['start_codon']] ==
+                evi.group_chains[self.best_chain]['start']:
+                self.feature_vector[k] = 1.0
+            k+=1
+
+        # number of introns matching best_chain / number of introns in tx
+        # number of introns matching best_chain / number of introns in chain
+        intron_keys = [f"{tx.chr}_{c[0]}_{c[1]}_intron_{tx.strand}"
+            for c in self.coords['intron']]
+        chain_match = len(set(evi.group_chains[g][type]).intersection(intron_keys))
+        self.feature_vector[k] = chain_match / len(self.coords['intron'])
+        self.feature_vector[k+1] = chain_match / len(self.group_chains[g]['intron']))
+        k+=2
+
+        # log10 len of CDSparts of best chain matching CDS in tx / number of CDS in tx
+        # log10 len of CDSparts of best chain matching CDS in tx / number of CDS in chain
+        # number of CDS in tx that dont have any supported by CDSparts from best chain
+        total_length_chain = np.log10(sum([c[1]-c[0]+1 for c in self.group_chains[self.best_chain_match][type]]))
+        chain_match = np.log10(sum([c[1]-c[0] + 1 for c in self.cdspart_hints[self.best_chain_match]]))
+        #total_len_cds = np.log10(sum([c[1]-c[0] + 1 for c in self.coords['CDS']]))
+        #self.feature_vector[k] = chain_match - total_len_cds)
+        self.feature_vector[k] = chain_match - total_length_chain)
+        self.feature_vector[k+1] = np.sum([1 for c in
+            self.group_chains[self.best_chain_match][type] if not c])
+        k+=2
+
+        # list of best_chain support for each CDS
+        # list of relativ support
+        # list of absolute support
+        cds_support = [self.cdspart_hints[self.best_chain_match], [], []]
+
+        for i in range(len(self.coords['CDS'])):
+            cds_support[1].append([])
+            cds_support[2].append([])
+            for group in self.cdspart_hints.values()
+                for c in group[i]:
+                    cds_support[2][i].append(c)
+                    if not cds_support[1][i] or cds_support[1][i][-1][1] >= c[0]:
+                        cds_support[1][i][-1][1] = max(cds_support[1][i][-1][1], c[1])
+                    else:
+                        cds_support[1][i].append(c)
+
+        # number of CDS with no CDSpart support
+        self.feature_vector[k] = np.sum([1 for c in
+            cds_support[1] if not c])
+        k+=1
+
+        ### for best chain, relative support by any chain, absolute support by any chain
+            # sum support / len(cds)
+            # support of maximal supported cds
+            # support of minimal supported cds
+            # std of support of supported cds
+            # entropy of support of supported cds
+        for cds in cds_support:
+            cds_sum = np.array([np.sum([c2[1] - c2[0] + 1 for c2 in c1]) for c1 in cds])
+            cds_len = np.array([c[1] - c[0] + 1 for c in self.coords['CDS']])
+            self.feature_vector[k] = np.log10(np.sum(cds_sum)) - np.log10(np.sum(cds_len))
+            cds_norm = np.log10(cds_sum) - np.log10(cds_len)
+            self.feature_vector[k+1] = np.max(cds_norm)
+            self.feature_vector[k+2] = np.min(cds_norm)
+            self.feature_vector[k+3] = np.std(cds_norm)
+            p = cds_norm / np.sum(cds_norm)
+            self.feature_vector[k+4] = np.sum(p * np.log10(p) / np.log10(len(coords['CDS'])))
+            k+=5
+
+        # number of overlapping transcripts
+        self.feature_vector[k] = len(self.edge_to)
+
+        self.feature_vector[k:] = self.feature_vector[:k]
 
 class Graph_component:
     """
@@ -288,7 +460,7 @@ class Graph_component:
 
     def __update_edges__(self, edge_dict):
         if not self.up_to_date:
-            self.edge_path = []            
+            self.edge_path = []
             for e_id in self.edges:
                 self.edge_path.append([self.nodes.index(edge_dict[e_id].node1),
                     self.nodes.index(edge_dict[e_id].node2)])
@@ -324,7 +496,7 @@ class Graph_component:
         return edge_features.reshape(-1, edge_features.shape[-1])
 
     def get_target_label(self, node_dict):
-        target = np.zeros((len(self.nodes),1))        
+        target = np.zeros((len(self.nodes),1))
         #target[[i for i,n in enumerate(self.nodes) if node_dict[n].is_in_ref_anno], 0] = 1.0
         target[:,0] = np.array([node_dict[n].ref_anno_cds_acc for n in self.nodes])
         return target
@@ -362,7 +534,7 @@ class Graph:
         self.v = verbose
         self.ties = 0
         self.rng = np.random.RandomState(5253242)
-        
+
 
         # list of Graph_component(), each component concists of a number of
         # connected component, all nodes and edges of one connected component is
@@ -376,8 +548,8 @@ class Graph:
         # numb edges
         # numb components
         self.global_bias_features = np.zeros(30, float)
-        
-        
+
+
         # init annotations, check for duplicate ids
         self.init_anno(genome_anno_lst)
 
@@ -483,7 +655,7 @@ class Graph:
         """
             Check if two transcripts share at least 3 adjacent protein
             coding nucleotides on the same strand and reading frame.
-    
+
             Args:
                 tx1 (Transcript): Transcript class object of first transcript
                 tx2 (Transcript): Transcript class object of second transcript
@@ -545,7 +717,7 @@ class Graph:
 
 
     def create_batch(self, numb_batches, batch_size, repl=False):
-        
+
         if not self.component_list:
             self.connected_components()
         """if not repl and numb_batches*batch_size>len(self.nodes):
@@ -554,10 +726,10 @@ class Graph:
                 + f'batch_size={batch_size} number_connected_components={len(self.component_list)}.')"""
         components = [i for i in list(self.component_list.values()) if len(i)>0]
         self.batches = [Graph_component()]
-        
+
         end = len(components)
         if repl:
-            end = numb_batches*batch_size            
+            end = numb_batches*batch_size
         #print(len(self.nodes), len(components), end, numb_batches)
         for k, i in enumerate(np.random.choice(len(components), \
             end, replace=repl)):
@@ -570,13 +742,13 @@ class Graph:
                     self.batches[-1].update_all(self.edges)
                 if len(self.batches) <= numb_batches:
                     self.batches.append(Graph_component())
-                else:    
+                else:
                     break
         self.batches[-1].update_all(self.edges)
 
 
     def create_batch_no_edges(self, numb_batches, batch_size, repl=False):
-        
+
         if not self.component_list:
             self.connected_components()
         """if not repl and numb_batches*batch_size>len(self.nodes):
@@ -585,10 +757,10 @@ class Graph:
                 + f'batch_size={batch_size} number_connected_components={len(self.component_list)}.')"""
         components = [i for i in list(self.component_list.values()) if len(i)==1]
         self.batches_no_edge = [Graph_component()]
-        
+
         end = len(components)
         if repl:
-            end = numb_batches*batch_size            
+            end = numb_batches*batch_size
         #print('NOEDGE', len(self.nodes), len(components), end, numb_batches, len(self.rng.choice(len(components), \
             #end, replace=repl)))
         for k, i in enumerate(self.rng.choice(len(components), \
@@ -598,12 +770,12 @@ class Graph:
                 self.batches_no_edge[-1].update_all(self.edges)
                 if len(self.batches_no_edge) <= numb_batches:
                     self.batches_no_edge.append(Graph_component())
-                else:    
+                else:
                     print(k, i)
                     break
         self.batches_no_edge[-1].update_all(self.edges)
-        
-        
+
+
     def get_batches_as_input_target(self, val_size=0.1):
         # val size as fraction of numb_batches
         input_target_train = []
@@ -632,7 +804,7 @@ class Graph:
                 input_target_val.append(new_batch)
             else:
                 input_target_train.append(new_batch)
-                
+
         """numb_batches = len(self.batches_no_edge)
         val_indices = self.rng.choice(numb_batches, int(val_size*numb_batches), \
             replace=False)
@@ -674,7 +846,7 @@ class Graph:
             ref_anno_keys.append('_'.join(cds_keys))
         ref_anno_cds = set(ref_anno_cds)
         ref_anno_keys = set(ref_anno_keys)
-        
+
         for n in self.nodes:
             c_keys = get_cds_keys(self.__tx_from_key__(n))
             if '_'.join(c_keys) in ref_anno_keys:
@@ -691,7 +863,7 @@ class Graph:
                 evi (Evidence): Evidence class object with all hints from any source.
         """
         #mean = sigma = np.zeros(46, float)
-         
+
         #ma = np.zeros(self.__features_to_norm__.shape[-1], float)
         #ma = np.zeros(46, float)
         epsi = 1e-17
@@ -714,13 +886,13 @@ class Graph:
         m = np.maximum(m, np.ones(m.shape[0]) * epsi)
         n_f /= m
         std = np.std(n_f, axis=0)
-        std = np.maximum(std, np.ones(std.shape[0]) * epsi)        
+        std = np.maximum(std, np.ones(std.shape[0]) * epsi)
         mean = np.mean(n_f, axis=0)
         self.global_bias_features = mean
-        print('NODES\nMEAN:  ', mean, '\nSTD:  ', std, 
-                  '\nMIN:  ', np.min(n_f, axis=0), '\nMAX:  ', 
+        print('NODES\nMEAN:  ', mean, '\nSTD:  ', std,
+                  '\nMIN:  ', np.min(n_f, axis=0), '\nMAX:  ',
                   np.max(n_f, axis=0))
-        
+
         for node_key in self.nodes.keys():
             #print(self.nodes[node_key].feature_vector)
             self.nodes[node_key].feature_vector /= m
@@ -742,19 +914,19 @@ class Graph:
             edge.add_features(tx1, tx2, evi)
             e_f.append(edge.feature_vector_n1_to_n2)
             e_f.append(edge.feature_vector_n2_to_n1)
-            
+
         e_f = np.array(e_f)
         m = np.max(e_f, axis=0)
         m = np.maximum(m, np.ones(m.shape[0]) * epsi)
-        e_f /= m 
+        e_f /= m
         std = np.std(e_f, axis=0)
-        std = np.maximum(std, np.ones(std.shape[0]) * epsi)      
+        std = np.maximum(std, np.ones(std.shape[0]) * epsi)
         mean = np.mean(e_f, axis=0)
-        
-        print('EDGES\nMEAN:  ', mean, '\nSTD:  ', std, 
-                  '\nMIN:  ', np.min(e_f, axis=0), '\nMAX:  ', 
+
+        print('EDGES\nMEAN:  ', mean, '\nSTD:  ', std,
+                  '\nMIN:  ', np.min(e_f, axis=0), '\nMAX:  ',
                   np.max(e_f, axis=0))
-        
+
         for edge_key in self.edges.keys():
             #print(self.nodes[node_key].feature_vector)
             self.edges[edge_key].feature_vector_n1_to_n2 /= m
@@ -763,7 +935,7 @@ class Graph:
             self.edges[edge_key].feature_vector_n1_to_n2 /= std
             self.edges[edge_key].feature_vector_n2_to_n1 -= mean
             self.edges[edge_key].feature_vector_n2_to_n1 /= std
-            
+
     def __decide_edge__(self, edge):
         """
             Apply transcript comparison rule to two overlapping transcripts
