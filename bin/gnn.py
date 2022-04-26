@@ -18,9 +18,9 @@ class ConfigFileError(Exception):
     pass
 
 config = {
-    "message_passing_iterations" : 1
+    "message_passing_iterations" : 2
     ,
-    "latent_dim" : 128
+    "latent_dim" : 100
 }
 
 gtf = []
@@ -32,9 +32,9 @@ out = ''
 v = 0
 quiet = False
 
-numb_node_features = 39#46
+numb_node_features = 160#46
 numb_bias_features = 38
-numb_edge_features = 24
+numb_edge_features = 240
 
 numb_batches = 150
 batch_size = 100
@@ -43,7 +43,6 @@ val_size = 0
 
 class GNN:
     def __init__(self, cfg=config, weight_class_one=1.):
-
         self.model = self.make_GNN(config)
         #self.model_nn = self.make_NN(config)
 
@@ -51,8 +50,49 @@ class GNN:
         self.cfg=cfg
         self.cee = tf.keras.losses.BinaryCrossentropy(reduction=tf.keras.losses.Reduction.NONE)
         self.acc = tf.keras.metrics.BinaryAccuracy()
-        self.learning_rate = 1e-3
+        self.learning_rate = 1e-4
 
+        
+        
+    #def sp_sn_loss(self, y_true, y_pred):
+    def get_cds_probability(self, p_list):
+        # input list of probabilities
+        return np.sum([p_list[i] * np.prod([1-pj for pj in p_list[:i]]) for i in range(len(p_list))])
+        
+        
+        
+    def tx_cds_loss(self, y_true, y_pred):
+        loss = 0
+        # cds[c_key]: first col: true label of cds, second: probability that c is included in output
+        """cds = {}
+        tx_true = np.array([y_t[0][1] for y_t in y_true])
+        for j in range(len(y_true)):
+            for c in y_true[j][1:]:
+                if c[0] not in cds:
+                    cds.update({c[0] : [c[1], []]})
+                cds[c[0]][1].append(y_pred[-1][j])
+        cds_true = np.array([c[0] for c in cds.values()])
+        cds_pred = np.array([self.get_cds_probability(c[1]) for c in cds.values()])"""
+        cds_true = tf.math.reduce_max(y_true[0][:,1:],0)
+        #cds_true = tf.zeros(y_true.shape[-1], float)
+        cds_true = tf.math.subtract(cds_true, 1.0)
+        cds_true = tf.math.maximum(cds_true, 0.0)
+        
+        cds_weights = tf.math.multiply(cds_true, self.weight_class_one-1.0) + 1.0
+        tx_weights = tf.math.multiply(y_true[0][:,0], self.weight_class_one-1.0) + 1.0
+        for i in range(self.cfg["message_passing_iterations"]):
+            cds_prob = tf.math.minimum(y_true[0][:,1:], 1.0)
+            cds_prob = tf.math.multiply(cds_prob, tf.expand_dims(y_pred[i][0],1))
+            cum_prod = tf.math.multiply(tf.math.subtract(cds_prob, 1), -1)
+            cum_prod = tf.math.cumprod(cum_prod, axis=0, exclusive=True)
+            cds_pred = tf.reduce_sum(tf.math.multiply(cds_prob, cum_prod), 0)
+
+
+            loss += tf.reduce_mean(self.cee(y_true[0][:,0], y_pred[i][0]) * tx_weights)
+            loss += tf.reduce_mean(self.cee(cds_true, cds_pred) * cds_weights)
+        return loss
+        
+        
     def all_iterations_cee(self, y_true, y_pred):
         loss = 0
         y_true_floor = tf.math.floor(y_true)
@@ -63,24 +103,26 @@ class GNN:
             loss += tf.reduce_mean(weights * tf.reshape(self.cee(y_true_floor, y_pred[i]),[-1]))
             #print(self.cee(y_true_floor, y_pred[i]).shape)
             # loss on exon level
-            loss += tf.reduce_mean(weights * self.cee(y_true_floor, y_true * y_pred[i]))
+            #loss += tf.reduce_mean(weights * self.cee(y_true_floor, y_true * y_pred[i]))
         #loss += tf.reduce_mean(self.cee(y_true_floor,tf.math.floor(y_pred[-1] + 0.5)) * weights)
         return loss / self.cfg["message_passing_iterations"]
 
+    
     def last_iteration_binary_accuracy(self, y_true, y_pred):
-        return self.acc(tf.math.floor(y_true), tf.math.floor(y_pred[-1]+0.5))
+        print('A', y_true.shape, y_pred.shape)
+        return self.acc(tf.math.floor(y_true[0][:,0]), tf.math.floor(y_pred[-1]+0.5))
 
-    def nn_cee(self, y_true, y_pred):
+    """def nn_cee(self, y_true, y_pred):
         loss = 0
         y_true_floor = tf.math.floor(y_true)
         weights = tf.reshape(y_true_floor[0] * (self.weight_class_one-1.) + 1., [-1])
         loss += tf.reduce_mean(weights * tf.reshape(self.cee(y_true_floor, y_pred[-1]),[-1]))
         loss += tf.reduce_mean(weights * self.cee(y_true_floor, y_true * y_pred[-1]))
-        return loss
+        return loss"""
 
     def compile(self, weights=''):
         optimizer = tf.keras.optimizers.Adam(learning_rate = self.learning_rate)
-        self.model.compile(loss=self.all_iterations_cee,
+        self.model.compile(loss=self.tx_cds_loss,
             optimizer=optimizer,
             metrics={"target_label" : self.last_iteration_binary_accuracy})
         if weights:
@@ -120,19 +162,23 @@ class GNN:
     #define a feedforward layer
     def make_ff_layer(self, config):
         phi = keras.Sequential([
-                layers.Dense(config["latent_dim"], activation="relu", \
-                    kernel_regularizer=tf.keras.regularizers.l1_l2(0.00001)
-                            ),
+                layers.Dense(config["latent_dim"], activation=tf.keras.layers.LeakyReLU(alpha=0.01)#,\
+                                 #kernel_regularizer=tf.keras.regularizers.l1_l2(0.001)
+                                ),
+            layers.Dense(config["latent_dim"], activation=tf.keras.layers.LeakyReLU(alpha=0.01)#,\
+                                # kernel_regularizer=tf.keras.regularizers.l1_l2(0.001)
+                                )
                 #layers.Dense(config["latent_dim"], activation="relu", \
                         #kernel_regularizer=tf.keras.regularizers.l2(0.004)
                                 #),
-                layers.Dense(config["latent_dim"], activation="relu", \
-                    kernel_regularizer=tf.keras.regularizers.l1_l2(0.00001)
-                            )
+                #layers.Dense(config["latent_dim"], activation="relu"#, \
+                    #kernel_regularizer=tf.keras.regularizers.l1_l2(0.00001)
+                            #) 
+            #tf.keras.layers.LeakyReLU(alpha=0.01)
         ])
         return phi
 
-    def make_NN(self, config):
+    """def make_NN(self, config):
         V = keras.Input(shape=(None, numb_node_features), name="input_nodes", batch_size=1)
         phi = keras.Sequential([
                 layers.Dense(config["latent_dim"], activation="relu", \
@@ -146,7 +192,7 @@ class GNN:
 
         model = keras.Model(inputs=[V],
                             outputs=[layers.Lambda(lambda x: x, name="target_label")(tf.stack(target_label))])
-        return model
+        return model"""
 
 
     def make_GNN(self, config):
