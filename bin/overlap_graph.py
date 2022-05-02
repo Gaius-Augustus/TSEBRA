@@ -499,8 +499,8 @@ class Graph_component:
         # False if new node has been added and edges, incidence_matrix,...
         # haven't been updated
         self.up_to_date = True
-        self.incidence_matrix_sender = None
-        self.incidence_matrix_receiver = None
+        self.incidence_matrix_sender = np.array([[]])
+        self.incidence_matrix_receiver = np.array([[]])
         # list Edge() objects of all edges in component
         self.edges = []
         # edges (i,j) in component, where i,j are the indices from self.nodes of adjacent nodes
@@ -558,7 +558,11 @@ class Graph_component:
     def get_edge_features(self, edge_dict):
         edge_features = np.array([[edge_dict[e].feature_vector_n1_to_n2, \
             edge_dict[e].feature_vector_n2_to_n1] for e in self.edges])
-        return edge_features.reshape(-1, edge_features.shape[-1])
+        if edge_features.size > 0:
+            edge_features = edge_features.reshape(-1, edge_features.shape[-1])
+        else:
+            edge_features = np.zeros((0, 240))
+        return edge_features
 
     def get_target_label(self, node_dict):
         #target[[i for i,n in enumerate(self.nodes) if node_dict[n].is_in_ref_anno], 0] = 1.0
@@ -606,6 +610,7 @@ class Graph:
 
         # list of connected graph components
         self.component_list = {}
+        self.graph_components = []
 
         # subset of all transcripts that weren't removed by the transcript comparison rule
         self.decided_graph = []
@@ -798,19 +803,34 @@ class Graph:
             self.component_list[self.nodes[key].component_id].append(key)
         return self.component_list
 
-
+    def get_graph_components(self, min_comps=0):
+        #self.graph_components = []
+        if self.graph_components:
+            return self.graph_components
+        self.graph_components = []
+        self.connected_components()
+        for component in self.component_list.values():
+            if len(component) > min_comps:
+                self.graph_components.append(Graph_component())
+                self.graph_components[-1].add_nodes([self.nodes[n] for n in component])
+                self.graph_components[-1].update_all(self.edges)
+        return self.graph_components
+        
     def create_batch(self, numb_batches, batch_size, repl=False):
 
-        if not self.component_list:
-            self.connected_components()
+        #if not self.component_list:
+            #self.connected_components()
         """if not repl and numb_batches*batch_size>len(self.nodes):
             raise BatchSizeError('ERROR: numb_batches*batch_size has to be smaller '\
                 + f'than number_connected_components. numb_batches={numb_batches} '\
                 + f'batch_size={batch_size} number_connected_components={len(self.component_list)}.')"""
-        components = [i for i in list(self.component_list.values()) if len(i)>0]
-        self.batches = [Graph_component()]
-
-        end = len(components)
+        #components = [i for i in list(self.component_list.values()) if len(i)>0]
+        
+        components = self.get_graph_components(0)
+        
+        self.batches = components
+        
+        """end = len(components)
         if repl:
             end = numb_batches*batch_size
         #print(len(self.nodes), len(components), end, numb_batches)
@@ -827,7 +847,7 @@ class Graph:
                     self.batches.append(Graph_component())
                 else:
                     break
-        self.batches[-1].update_all(self.edges)
+        self.batches[-1].update_all(self.edges)"""
 
 
     def create_batch_no_edges(self, numb_batches, batch_size, repl=False):
@@ -859,7 +879,44 @@ class Graph:
         self.batches_no_edge[-1].update_all(self.edges)
 
 
-    def get_batches_as_input_target(self, val_size=0.1):
+        
+    def get_components_as_input_target(self, numb_nodes, min_comps=0, sort=False):
+        components = self.get_graph_components(min_comps)
+        if sort:
+            sort_list = []
+            for i, c in enumerate(components):
+                tx = self.__tx_from_key__(c.nodes[0])
+                sort_list.append([tx.chr, tx.strand, tx.start, i])
+            sort_list.sort()            
+            #print(sort_list[:5])            
+            components= np.array(components)[[i[-1] for i in sort_list]]
+        else:
+            np.random.shuffle(components)
+        i = 0
+        if numb_nodes <0:
+            numb_nodes = len(self.nodes)
+        input_target = []
+        for c in components:
+            if i < numb_nodes:
+                input_target.append([
+                    {
+                        "input_nodes" : np.expand_dims(c.get_node_features(self.nodes) ,0),
+                        "input_edges" : np.expand_dims(c.get_edge_features(self.edges) ,0),
+                        #"input_bias" : np.expand_dims(input_bias ,0),
+                        "incidence_matrix_sender" : tf.expand_dims(c.get_incidence_matrix_sender() ,0),
+                        "incidence_matrix_receiver" : tf.expand_dims(c.get_incidence_matrix_receiver() ,0)
+                    },
+                    {
+                        "target_label" : np.expand_dims(c.get_target_label(self.nodes),0)
+                    }
+                ])
+            else:
+                break
+            i += len(c.nodes)
+        print(i)
+        return input_target, [c.nodes for c in components]
+    
+    def get_batches_as_input_target2(self, val_size=0.1):
         # val size as fraction of numb_batches
         input_target_train = []
         input_target_val = []
