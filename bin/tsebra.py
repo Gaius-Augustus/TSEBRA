@@ -14,7 +14,7 @@ class ConfigFileError(Exception):
 
 class GeneSetMissing(Exception):
     pass
-    
+
 gtf = []
 keep_all = []
 keep_long_reads = False
@@ -202,7 +202,7 @@ def parseCmd():
     parser.add_argument('-l', '--long_reads', type=str,
         help='List (separated by commas) of transcript sets inferred from long-reads.\n' \
             + '(e.g. long_read1.gtf,long_read2.gtf,long_read3.gtf)')
-    parser.add_argument('-e', '--hintfiles', type=str, required=True,
+    parser.add_argument('-e', '--hintfiles', type=str, 
         help='List (separated by commas) of files containing extrinsic evidence in gff.\n' \
             + '(e.g. hintsfile1.gff,hintsfile2.gtf,3.gtf)')
     parser.add_argument('-kl', '--keep_long_reads', action='store_true',

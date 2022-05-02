@@ -170,7 +170,6 @@ class Graph:
                     tx_start_end[tx.chr].append([key, tx.start, 0])
                     tx_start_end[tx.chr].append([key, tx.end, 1])
 
-
         # detect overlapping nodes
         edge_count = 0
         for chr in tx_start_end.keys():
@@ -389,6 +388,5 @@ class Graph:
             if self.nodes[node].evi_support or self.nodes[node].enforce:
                 anno_id, tx_id = node.split(';')
                 result[anno_id].append([tx_id, self.nodes[node].component_id])
-
 
         return result
