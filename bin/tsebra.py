@@ -12,6 +12,9 @@ import csv
 class ConfigFileError(Exception):
     pass
 
+class GeneSetMissing(Exception):
+    pass
+    
 gtf = []
 keep_all = []
 keep_long_reads = False
