@@ -310,8 +310,11 @@ class Graph:
                 return n2.id
             if n1.number_predicted < n2.number_predicted:
                 return n1.id
-
-        if len(tx1.transcript_lines['CDS']) == 1 or len(tx2.transcript_lines['CDS']) == 1:
+        type = 'CDS'
+        if 'CDS' not in tx1.transcript_lines.keys() or \
+            'CDS' not in tx2.transcript_lines.keys():
+            type = 'exon'
+        if len(tx1.transcript_lines[type]) == 1 or len(tx2.transcript_lines[type]) == 1:
             j = 1
 
         for i in range(j,6):
