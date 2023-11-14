@@ -135,6 +135,8 @@ Example:
     -k enforced_set1,enforced_set2 -e hintsfile1.gff,braker2_out/hintsfile2.gff \
     -o tsebra.gtf
 ```
+To merge two gene sets, simply omit the `-g` option.
+
 
 ## Filter single-exon genes out
 In default mode, TSEBRA is conservative in filtering single exon genes out. In some cases BRAKER predicts a lot of false positive single exon genes. In these cases, it is recommended to run TSBERA using the `--filter_single_exon_genes`. In this mode, TSBERA filters additonally all single-exon genes out that have no support by a start or stop codon hint. 
