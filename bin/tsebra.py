@@ -25,6 +25,7 @@ graph = None
 out = ''
 v = 0
 quiet = False
+ignore_tx_phase = False
 filter = False
 parameter = {'intron_support' : 0, 'stop_support' : 0, 'start_support' : 0, \
     'e_1' : 0, 'e_2' : 0, 'e_3' : 0, 'e_4' : 0, 'e_5' : 0, 'e_6' : 0}
@@ -100,7 +101,7 @@ def main():
     # create graph with an edge for each unique transcript
     # and an edge if two transcripts overlap
     # two transcripts overlap if they share at least 3 adjacent protein coding nucleotides
-    graph = Graph(anno, para=parameter, filter_short=filter, keep_tx=keep, verbose=v)
+    graph = Graph(anno, para=parameter, filter_short=filter, keep_tx=keep, ignore_phase=ignore_tx_phase, verbose=v)
     if not quiet:
         sys.stderr.write('### BUILD OVERLAP GRAPH\n')
     graph.build()
@@ -155,7 +156,7 @@ def set_parameter(cfg_file):
 
 def init(args):
     global gtf, hintfiles, threads, hint_source_weight, out, v, \
-        filter, long_reads, quiet, keep_all, keep_long_reads
+        filter, long_reads, quiet, keep_all, keep_long_reads, ignore_tx_phase
     if args.gtf:
         gtf = args.gtf.split(',')
     if args.keep_gtf:
@@ -174,6 +175,8 @@ def init(args):
     set_parameter(cfg_file)
     if args.out:
         out = args.out
+    if args.ignore_tx_phase:
+        ignore_tx_phase = args.ignore_tx_phase
     if args.verbose:
         v = args.verbose
     if args.filter_short:
@@ -199,6 +202,9 @@ def parseCmd():
         help='List (separated by commas) of gene prediciton files in gtf.\n' \
             + 'These gene sets are used the same way as other inputs, but TSEBRA '\
             + 'ensures that all transcripts from these gene sets are included in the output.')
+    parser.add_argument('--ignore_tx_phase', action='store_true',
+        help='Ignore the phase of transcripts while detecting clusters ' \
+            + 'of overlapping transcripts.')
     parser.add_argument('-l', '--long_reads', type=str,
         help='List (separated by commas) of transcript sets inferred from long-reads.\n' \
             + '(e.g. long_read1.gtf,long_read2.gtf,long_read3.gtf)')

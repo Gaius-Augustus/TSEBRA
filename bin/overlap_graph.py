@@ -54,7 +54,7 @@ class Graph:
         Overlap graph that can detect and filter overlapping transcripts.
     """
     def __init__(self, genome_anno_lst, para, filter_short=False, \
-        keep_tx=[], verbose=0):
+        keep_tx=[], ignore_phase=False, verbose=0):
         """
             Args:
                 genome_anno_lst (list(Anno)): List of Anno class objects
@@ -81,6 +81,7 @@ class Graph:
         self.duplicates = {}
 
         self.filter_short = filter_short
+        self.ignore_phase = ignore_phase
 
         self.keep_tx = set(keep_tx)
         # parameters for decision rule
@@ -204,15 +205,19 @@ class Graph:
         """
         if not tx1.strand == tx2.strand:
             return False
-        tx1_coords = tx1.get_type_coords('CDS')
-        tx2_coords = tx2.get_type_coords('CDS')
-        for phase in ['0', '1', '2', '.']:
-            coords = []
-            coords += tx1_coords[phase]
-            coords += tx2_coords[phase]
-            coords = sorted(coords, key=lambda c:c[0])
-            for i in range(1, len(coords)):
-                if coords[i-1][1] - coords[i][0] > 1:
+        coords = []
+        coords += [c + [int(phase)] for phase, coord_phase in tx1.get_type_coords('CDS').items() for c in coord_phase]
+        coords += [c + [int(phase)] for phase, coord_phase in tx2.get_type_coords('CDS').items() for c in coord_phase]
+        coords = sorted(coords, key = lambda x: x[0])
+        
+        for i in range(1, len(coords)):
+            if coords[i-1][1] - coords[i][0] > 0:       
+                if self.ignore_phase:
+                    return True
+                elif tx1.strand == '+' and \
+                    abs(coords[i-1][0]-coords[i-1][2]-coords[i][0]+coords[i][2])%3 == 0:
+                    return True
+                elif abs(coords[i-1][1]+coords[i-1][2]-coords[i][1]-coords[i][2])%3 == 0:
                     return True
         return False
 
