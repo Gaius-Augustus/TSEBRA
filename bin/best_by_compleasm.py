@@ -81,11 +81,15 @@ def find_input_files(args):
     file_paths["braker_aa"] = check_file(os.path.join(args.input_dir, "braker.aa"))
     file_paths["galba_aa"] = check_file(os.path.join(args.input_dir, "galba.aa"))
     file_paths["augustus_aa"] = check_file(os.path.join(args.input_dir, "Augustus", "augustus.hints.aa"))
+    if not file_paths["augustus_aa"]:
+        file_paths["augustus_aa"] = check_file(os.path.join(args.input_dir, "augustus.hints.aa"))
     file_paths["genome"] = check_file(args.genome)  # required to generate genemark protein file
     file_paths["hints"] = check_file(os.path.join(args.input_dir, "hintsfile.gff"))  # required to possibly run TSEBRA
     file_paths["braker_gtf"] = check_file(os.path.join(args.input_dir, "braker.gtf"))
     file_paths["galba_gtf"] = check_file(os.path.join(args.input_dir, "galba.gtf"))
     file_paths["augustus_gtf"] = check_file(os.path.join(args.input_dir, "Augustus", "augustus.hints.gtf"))
+    if not file_paths["augustus_gtf"]:
+        file_paths["augustus_gtf"] = check_file(os.path.join(args.input_dir, "augustus.hints.gtf")) 
     file_paths["miniprot_trainingGenes.gtf"] = check_file(os.path.join(args.input_dir, "miniprot_trainingGenes.gtf"))
     return file_paths
 
