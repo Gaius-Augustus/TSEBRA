@@ -11,12 +11,31 @@
 [TSEBRA](https://doi.org/10.1186/s12859-021-04482-0) is a combiner tool that selects transcripts from gene predictions based on the support by extrisic evidence in form of introns and start/stop codons. It was developed to combine BRAKER1<sup name="a1">[1](#ref1)</sup> and BRAKER2<sup name="a2">[2](#ref2)</sup> predicitons to increase their accuracies.
 
 ## Prerequisites
-Python 3.5.2 or higher is required.
+TSEBRA itself requires Python 3.5.2 or higher.
+
+`best_by_compleasm.py`, a script that may re-run TSEBRA on a BRAKER output folder to maximize BUSCO presence in the output gene set, requires compleasm v0.2.4 or newer (https://github.com/huangnengCSU/compleasm), and the python module pandas.
 
 ## Installation
 Download TSEBRA:
 ```console
 git clone https://github.com/Gaius-Augustus/TSEBRA
+
+If desired, download compleasm:
+
+```
+wget https://github.com/huangnengCSU/compleasm/releases/download/v0.2.4/compleasm-0.2.4_x64-linux.tar.bz2
+tar -xvjf compleasm-0.2.4_x64-linux.tar.bz2 && \
+```
+
+Add the resulting folder compleasm_kit to your `$PATH` variable, e.g.:
+```
+export PATH=$PATH:/your/path/to/compleasm_kit
+```
+
+Compleasm requires pandas, which can be installed with:
+
+```
+pip install pandas
 ```
 
 ## Usage
