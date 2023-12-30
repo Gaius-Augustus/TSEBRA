@@ -37,7 +37,7 @@ argparser.add_argument('-t', '--threads', type=str, required = False, default = 
                        help = 'Number of threads to use for running compleasm')
 argparser.add_argument('-p', '--busco_db', type=str, required = True,
                             help = 'BUSCO lineage for running compleasm')
-argparser.add_argument('-n', '--missing_busco_threshold', type=int, default = 15,
+argparser.add_argument('-n', '--missing_busco_threshold', type=int, default = 20,
                        required = False, help = "Threshold for the percentage of missing BUSCOs that " +
                        "decides until which point the BUSCOs in augustus and genemark gene sets will " +
                        "simply be added on top of the braker.gtf gene set, upper boundary.")
@@ -503,7 +503,7 @@ def main():
         if braker_missing <= augustus_missing and braker_missing <= genemark_missing:
             print("The BRAKER gene set " + file_paths["braker_gtf"] + " is the best one. It lacks " + str(braker_missing) + "% BUSCOs.")
             sys.exit(0)
-        elif (braker_missing <= args.missing_busco_threshold or ((augustus_missing-braker_missing)<5 and (genemark_missing-braker_missing)<5)) and (augustus_missing < braker_missing or genemark_missing < braker_missing):
+        elif (braker_missing <= args.missing_busco_threshold or ((braker_missing-augustus_missing)<5 and (braker_missing-genemark_missing)<5)) and (augustus_missing < braker_missing or genemark_missing < braker_missing):
             print("All BUSCOs present in augustus.hints.gtf and genemark.gtf will be added to the braker.gtf gene set.")
             # in this case we want to find the BUSCOs in all gene sets and merge them on top of the braker gene set
             tsebra_force = file_paths["braker_gtf"]
