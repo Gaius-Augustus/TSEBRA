@@ -17,8 +17,9 @@ TSEBRA itself requires Python 3.5.2 or higher.
 
 ## Installation
 Download TSEBRA:
-```console
+```
 git clone https://github.com/Gaius-Augustus/TSEBRA
+```
 
 If desired, download compleasm:
 
