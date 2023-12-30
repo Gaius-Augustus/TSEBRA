@@ -25,7 +25,7 @@ If desired, download compleasm:
 
 ```
 wget https://github.com/huangnengCSU/compleasm/releases/download/v0.2.4/compleasm-0.2.4_x64-linux.tar.bz2
-tar -xvjf compleasm-0.2.4_x64-linux.tar.bz2 && \
+tar -xvjf compleasm-0.2.4_x64-linux.tar.bz2
 ```
 
 Add the resulting folder compleasm_kit to your `$PATH` variable, e.g.:
