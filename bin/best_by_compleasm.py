@@ -16,6 +16,7 @@ __credits__ = "Huang Neng"
 __license__ = "Artistic License 2.0, in part Apache License (see notes in code about functions copied & modified from compleasm)"
 __version__ = "1.0.0"
 __email__ = "katharina.hoff@uni-greifswald.de"
+
 __status__ = "development"
 
 argparser = argparse.ArgumentParser(description = 'Find or build the best gene set generated with BRAKER and ' + 
@@ -454,6 +455,9 @@ def main():
     """
     Execute workflow
     """
+    # Step 0: complete the busco lineage name is necessary
+    if not args.busco_db.endswith("_odb10"):
+        args.busco_db = args.busco_db + "_odb10"
     
     # Step 1: Find all input files
     file_paths = find_input_files(args)
