@@ -14,10 +14,9 @@ __author__ = "Katharina J. Hoff"
 __copyright__ = "Copyright 2023. All rights reserved."
 __credits__ = "Huang Neng"
 __license__ = "Artistic License 2.0, in part Apache License (see notes in code about functions copied & modified from compleasm)"
-__version__ = "1.0.0"
+__version__ = "1.0.1"
 __email__ = "katharina.hoff@uni-greifswald.de"
-
-__status__ = "development"
+__status__ = "production"
 
 argparser = argparse.ArgumentParser(description = 'Find or build the best gene set generated with BRAKER and ' + 
                                     'TSEBRA minimizing missing BUSCOs using compleasm. Will only compute a ' +
@@ -42,6 +41,7 @@ argparser.add_argument('-n', '--missing_busco_threshold', type=int, default = 20
                        required = False, help = "Threshold for the percentage of missing BUSCOs that " +
                        "decides until which point the BUSCOs in augustus and genemark gene sets will " +
                        "simply be added on top of the braker.gtf gene set, upper boundary.")
+argparser.add_argument('-v', '--version', action='version', version='%(prog)s {version}'.format(version=__version__))
 
 args = argparser.parse_args()
 
@@ -182,7 +182,6 @@ def find_input_files(args):
     if not file_paths["augustus_aa"]:
         file_paths["augustus_aa"] = check_file(os.path.join(args.input_dir, "augustus.hints.aa"))
     file_paths["genome"] = check_file(args.genome)  # required to generate genemark protein file
-    file_paths["hints"] = check_file(os.path.join(args.input_dir, "hintsfile.gff"))  # required to possibly run TSEBRA
     file_paths["braker_gtf"] = check_file(os.path.join(args.input_dir, "braker.gtf"))
     file_paths["augustus_gtf"] = check_file(os.path.join(args.input_dir, "Augustus", "augustus.hints.gtf"))
     if not file_paths["augustus_gtf"]:
@@ -208,7 +207,7 @@ def find_genemark_gtf(input_dir):
         training_gtf_file = os.path.join(input_dir, genemark_dir, "training.gtf")
         if not os.path.isfile(training_gtf_file):
             training_gtf_file = os.path.join(input_dir, "traingenes.gtf")
-        if os.path.isfile(genemark_gtf_file) and os.path.isfile(training_gtf_file):
+        if os.path.isfile(genemark_gtf_file):
             return check_file(genemark_gtf_file), check_file(training_gtf_file)
 
     return False, False
@@ -254,7 +253,6 @@ def run_compleasm(protein_files, threads, busco_db, tmp_dir):
 
     # run compleasm on the protein files
     for protein_file in protein_files:
-        # this currently only works with branch 0.2.3 from github
         # create a tool-specific output subdirectory
         tool = re.search(r'^([^.]+)\.', os.path.basename(protein_file)).group(1)
         tool_out_dir = args.tmp_dir + "/" + tool
@@ -281,7 +279,7 @@ def run_getanno(annobin, genome_file, gtf, output_dir):
 
     """
     tool = re.search(r'^([^.]+)\.', os.path.basename(gtf)).group(1)
-    cmd = [annobin, '-g', genome_file, '-f', gtf, '-o', output_dir + "/" + tool]
+    cmd = [annobin, '-g', genome_file, '-f', gtf, '-o', output_dir + "/" + tool, '-s', 'True']
     run_simple_process(cmd)
     return check_file(output_dir + "/" + tool + ".aa")
 
@@ -334,7 +332,8 @@ def check_binary(binary, name):
     Raises:
         SystemExit: If the binary is not found, not executable, or not in the PATH.
 
-    """        # check if binary is in PATH
+    """        
+    # check if binary is in PATH
     if binary is not None:
         if os.path.isfile(binary):
             # check if binary is executable
@@ -386,13 +385,13 @@ def determine_mode(path_dir):
         SystemExit: If the files are not complete for either of the runs
 
     """
-    if path_dir["braker_aa"] and path_dir["braker_gtf"] and path_dir["hints"] and path_dir["genome"] and path_dir["augustus_aa"] and path_dir["augustus_gtf"] and path_dir["genemark_gtf"] and path_dir["hints"]:
+    if path_dir["braker_aa"] and path_dir["braker_gtf"] and path_dir["genome"] and path_dir["augustus_aa"] and path_dir["augustus_gtf"] and path_dir["genemark_gtf"]:
         return "BRAKER"
     else:
         print("ERROR: The specified directory does not contain all required files.")
         print("These are the files that were found:")
         print(path_dir)
-        print("We require the following key files for a BRAKER run: braker.aa, braker.gtf, hintsfile.gff, genome.fa, augustus.hints.aa, augustus.hints.gtf, genemark.gtf, hintsfile.gff")
+        print("We require the following key files for a BRAKER run: braker.aa, braker.gtf, genome.fa, augustus.hints.aa, augustus.hints.gtf, genemark.gtf")
         sys.exit(1)
 
 
@@ -522,10 +521,12 @@ def main():
         # used to have a case for GALBA but that was removed because we implemented DIAMOND filter for GALBA, instead
 
     # Step 10: find the BUSCOs in augustus and genemark gene sets
-    keep_aug_dict = parse_hmmsearch_output(os.path.join(args.tmp_dir, "augustus"), score_dict, length_dict)
+    hmmoutdir = os.path.join(args.tmp_dir, "augustus", args.busco_db + "_hmmsearch_output")
+    keep_aug_dict = parse_hmmsearch_output(hmmoutdir, score_dict, length_dict)
     write_busco_keep_gtf(keep_aug_dict, file_paths["augustus_gtf"], args.tmp_dir + "/augustus_keep.gtf")
     # find the BUSCOs in genemark.gtf
-    keep_gm_dict = parse_hmmsearch_output(os.path.join(args.tmp_dir, "genemark"), score_dict, length_dict)
+    hmmoutdir = os.path.join(args.tmp_dir, "genemark", args.busco_db + "_hmmsearch_output")
+    keep_gm_dict = parse_hmmsearch_output(hmmoutdir, score_dict, length_dict)
     write_busco_keep_gtf(keep_gm_dict, file_paths["genemark_gtf"], args.tmp_dir + "/genemark_keep.gtf")
     # concatenate the two keep gtf files
     try:
@@ -544,19 +545,19 @@ def main():
             # if augustus_genemark_keep.gtf is not empty
             if os.stat(args.tmp_dir + "/augustus_genemark_keep.gtf").st_size > 0:
                 tsebra_cmd = [args.tsebra, "-k", tsebra_force + "," + args.tmp_dir + "/augustus_genemark_keep.gtf",
-                         "-o", args.tmp_dir + "/better.gtf", "-q"]
+                              "-o", args.tmp_dir + "/better.gtf", "-q"]
             else:
                 print("Attempted to merge additional BUSCOs onto braker.gtf but there are no BUSCOs to be added.")
-                print("The BRAKER gene set " + file_paths["braker_gtf"] + " is the best one. It lacks " + str(braker_missing) + "% BUSCOs.")
+                print("The BRAKER gene set " + file_paths["braker_gtf"] + " will be kept. It lacks " + str(braker_missing) + "% BUSCOs.")
                 sys.exit(0)
         elif file_paths['training_gtf']:
             tsebra_cmd = [args.tsebra, "-k", file_paths["training_gtf"] + "," + tsebra_force # enforcing training.gtf may seem redundant if genemark is enforced but it causes no harm, and it must be enforced if augustus is enforced
                           + "," + args.tmp_dir + "/augustus_genemark_keep.gtf",
-                          "-g", not_tsebra_force, "-e", file_paths["hints"], "-o", args.tmp_dir + "/better.gtf", "-q"]
+                          "-g", not_tsebra_force, "-o", args.tmp_dir + "/better.gtf", "-q"]
         else:
             print("Warning: No training.gtf file found. TSEBRA will be run without it, you may be using an older version of BRAKER.")
             tsebra_cmd = [args.tsebra, "-k", tsebra_force + "," + args.tmp_dir + "/augustus_genemark_keep.gtf",
-                      "-g", not_tsebra_force, "-e", file_paths["hints"], "-o", args.tmp_dir + "/better.gtf", "-q"]
+                      "-g", not_tsebra_force, "-o", args.tmp_dir + "/better.gtf", "-q"]
     run_simple_process(tsebra_cmd)
     # name genes/transcripts consistently
     shutil.move(args.tmp_dir + "/better.gtf", args.tmp_dir + "/better_tmp.gtf")
