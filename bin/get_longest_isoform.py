@@ -70,7 +70,7 @@ def main():
 
     if not quiet:
         sys.stderr.write('### FINISHED\n\n')
-        sys.stderr.write('### The combined gene prediciton is located at {}.\n'.format(\
+        sys.stderr.write('### The longest isoforms are located at {}.\n'.format(\
             out))
 
 def init(args):
