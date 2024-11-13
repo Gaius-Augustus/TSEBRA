@@ -275,6 +275,7 @@ def run_compleasm(protein_files, threads, busco_db, tmp_dir):
 def run_getanno(annobin, genome_file, gtf, output_dir):
     """
     Run the getAnnoFastaFromJoingenes.py tool to process the Genemark GTF file and generate protein sequences.
+    Remove protein sequences longer 100k because hmmer will crash on them.
 
     Args:
         annobin: getAnnoFastaFromJoingenes.py script.
@@ -286,6 +287,17 @@ def run_getanno(annobin, genome_file, gtf, output_dir):
     tool = re.search(r'^([^.]+)\.', os.path.basename(gtf)).group(1)
     cmd = [annobin, '-g', genome_file, '-f', gtf, '-o', output_dir + "/" + tool, '-s', 'True']
     run_simple_process(cmd)
+    # identify proteins longer 100k
+    with open(output_dir + "/" + tool + ".aa", 'r') as fin, open(output_dir + "/" + tool + "_short.aa", 'w') as fout:
+        for line in fin:
+            if line.startswith(">"):
+                header = line
+            else:
+                if len(line) < 100000:
+                    fout.write(header)
+                    fout.write(line)
+    os.remove(output_dir + "/" + tool + ".aa")
+    os.rename(output_dir + "/" + tool + "_short.aa", output_dir + "/" + tool + ".aa")
     return check_file(output_dir + "/" + tool + ".aa")
 
 def run_simple_process(args_lst):
