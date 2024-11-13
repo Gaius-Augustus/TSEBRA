@@ -289,15 +289,30 @@ def run_getanno(annobin, genome_file, gtf, output_dir):
     run_simple_process(cmd)
     # identify proteins longer 100k
     with open(output_dir + "/" + tool + ".aa", 'r') as fin, open(output_dir + "/" + tool + "_short.aa", 'w') as fout:
+        header = None
+        sequence = []
+
         for line in fin:
+            line = line.strip()
             if line.startswith(">"):
+                # Process previous sequence if it exists
+                if header and len("".join(sequence)) < 100000:
+                    fout.write(header + "\n")
+                    fout.write("".join(sequence) + "\n")
+                # Start a new sequence
                 header = line
+                sequence = []
             else:
-                if len(line) < 100000:
-                    fout.write(header)
-                    fout.write(line)
+                sequence.append(line)
+
+        # Check the last sequence in the file
+        if header and len("".join(sequence)) < 100000:
+            fout.write(header + "\n")
+            fout.write("".join(sequence) + "\n")
+
     os.remove(output_dir + "/" + tool + ".aa")
     os.rename(output_dir + "/" + tool + "_short.aa", output_dir + "/" + tool + ".aa")
+    
     return check_file(output_dir + "/" + tool + ".aa")
 
 def run_simple_process(args_lst):
