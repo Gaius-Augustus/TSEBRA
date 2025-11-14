@@ -85,8 +85,8 @@ class Transcript:
             coords = {'0' : [], '1' : [], '2' : [], '.' : []}
         else:
             coords = []
-        if type == 'CDS' and type not in self.transcript_lines.keys():
-            type = 'exon'
+        # if type == 'CDS' and type not in self.transcript_lines.keys():
+        #     type = 'exon'
         if type not in self.transcript_lines.keys():
             return coords
         for line in self.transcript_lines[type]:
@@ -168,7 +168,7 @@ class Transcript:
                 exon_lst = []
                 for line in self.transcript_lines[key]:
                     exon_lst.append(line)
-                exon_lst = sorted(exon_lst, key=lambda e:e[0])
+                exon_lst = sorted(exon_lst, key=lambda e:e[3])
                 for i in range(1, len(exon_lst)):
                     intron = []
                     intron += exon_lst[i][0:2]
