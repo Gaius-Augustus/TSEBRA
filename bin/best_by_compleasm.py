@@ -37,6 +37,9 @@ argparser.add_argument('-t', '--threads', type=str, required = False, default = 
                        help = 'Number of threads to use for running compleasm')
 argparser.add_argument('-p', '--busco_db', type=str, required = True,
                             help = 'BUSCO lineage for running compleasm')
+argparser.add_argument('-b', '--busco_data_dir', type=str, required = False,
+                            default = 'mb_downloads',
+                            help = 'Path to pre-downloaded BUSCO lineage data directory (default: mb_downloads)')
 argparser.add_argument('-n', '--missing_busco_threshold', type=int, default = 20,
                        required = False, help = "Threshold for the percentage of missing BUSCOs that " +
                        "decides until which point the BUSCOs in augustus and genemark gene sets will " +
@@ -236,20 +239,20 @@ def run_compleasm(protein_files, threads, busco_db, tmp_dir):
 
     """
     # download the BUSCO database if not present
-    if not os.path.exists("mb_downloads/" + busco_db):
+    if not os.path.exists(os.path.join(args.busco_data_dir, busco_db)):
         # cut off the _odbNN suffix from busco_db for the download command
         busco_db_short = re.sub(r'_odb\d+$', '', busco_db)
         compleasm_cmd = [args.compleasm_bin, "download", busco_db_short]
         run_simple_process(compleasm_cmd)
-    
+
     # read key data of BUSCO lineage
     # changed arguments in the following 2 calls
     # use args.busco_db and not busco_db because the suffix needs to remain here
-    score_cutoff_dict = load_score_cutoff(os.path.join("mb_downloads/" + args.busco_db, "scores_cutoff"))
-    length_cutoff_dict = load_length_cutoff(os.path.join("mb_downloads/" + args.busco_db, "lengths_cutoff"))
+    score_cutoff_dict = load_score_cutoff(os.path.join(args.busco_data_dir, args.busco_db, "scores_cutoff"))
+    length_cutoff_dict = load_length_cutoff(os.path.join(args.busco_data_dir, args.busco_db, "lengths_cutoff"))
 
     protein_hmmsearch_output_dict = {}  ## key: hmm protein name, value: list of aligned hmm and complete or fragment
-    for profile in os.listdir(os.path.join("mb_downloads/" + args.busco_db, "hmms")):
+    for profile in os.listdir(os.path.join(args.busco_data_dir, args.busco_db, "hmms")):
         outfile = profile.replace(".hmm", ".out")
         target_specie = profile.replace(".hmm", "")
         protein_hmmsearch_output_dict[target_specie] = []
