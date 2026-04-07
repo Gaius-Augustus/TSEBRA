@@ -237,11 +237,9 @@ def run_compleasm(protein_files, threads, busco_db, tmp_dir):
     """
     # download the BUSCO database if not present
     if not os.path.exists("mb_downloads/" + busco_db):
-        # cut off the _odb10 suffix from busco_db
-        # if it exists
-        if busco_db.endswith("_odb10"):
-            busco_db = busco_db[:-6]
-        compleasm_cmd = [args.compleasm_bin, "download", busco_db]
+        # cut off the _odbNN suffix from busco_db for the download command
+        busco_db_short = re.sub(r'_odb\d+$', '', busco_db)
+        compleasm_cmd = [args.compleasm_bin, "download", busco_db_short]
         run_simple_process(compleasm_cmd)
     
     # read key data of BUSCO lineage
@@ -459,9 +457,9 @@ def main():
     """
     Execute workflow
     """
-    # Step 0: complete the busco lineage name is necessary
-    if not args.busco_db.endswith("_odb10"):
-        args.busco_db = args.busco_db + "_odb10"
+    # Step 0: complete the busco lineage name if necessary
+    if not re.search(r'_odb\d+$', args.busco_db):
+        args.busco_db = args.busco_db + "_odb12"
     
     # Step 1: Find all input files
     file_paths = find_input_files(args)
