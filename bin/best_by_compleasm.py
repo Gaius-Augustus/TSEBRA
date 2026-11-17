@@ -67,13 +67,18 @@ def load_score_cutoff(scores_cutoff_file): # changed arguments
                     score = float(line[1])
                     cutoff_dict[taxid] = score
                 except IndexError:
-                    raise Error("Error parsing the scores_cutoff file.")
+                    raise RuntimeError("Error parsing the scores_cutoff file.")
     except IOError:
-        raise Error("Impossible to read the scores in {}".format(scores_cutoff_file))
+        raise RuntimeError("Impossible to read the scores in {}".format(scores_cutoff_file))
     return cutoff_dict
 
 def load_length_cutoff(lengths_cutoff_file): # changed arguments
+    # odb12 BUSCO lineages no longer ship a lengths_cutoff file; the downstream
+    # consumer (parse_hmmsearch_output) does not use the length cutoff, so
+    # treat a missing file as "no per-gene length bounds" instead of failing.
     cutoff_dict = {}
+    if not os.path.exists(lengths_cutoff_file):
+        return cutoff_dict
     try:
         with open(lengths_cutoff_file, "r") as f:
             for line in f:
@@ -88,9 +93,9 @@ def load_length_cutoff(lengths_cutoff_file): # changed arguments
                     cutoff_dict[taxid]["sigma"] = sigma
                     cutoff_dict[taxid]["length"] = length
                 except IndexError:
-                    raise Error("Error parsing the lengths_cutoff file.")
+                    raise RuntimeError("Error parsing the lengths_cutoff file.")
     except IOError:
-        raise Error("Impossible to read the lengths in {}".format(lengths_cutoff_file))
+        raise RuntimeError("Impossible to read the lengths in {}".format(lengths_cutoff_file))
     return cutoff_dict
 
 def parse_hmmsearch_output(hmm_out_dir, score_cutoff_dict, length_cutoff_dict): # turned this into a function
@@ -127,7 +132,7 @@ def parse_hmmsearch_output(hmm_out_dir, score_cutoff_dict, length_cutoff_dict): 
                                 try:
                                     assert hmm_from >= interval[0]
                                 except:
-                                    raise Error("Error parsing the hmmsearch output file {}.".format(outfile))
+                                    raise RuntimeError("Error parsing the hmmsearch output file {}.".format(outfile))
                                 if hmm_from >= interval[1]:
                                     interval[1] = hmm_to
                                     interval[2] += hmm_to - hmm_from
@@ -137,7 +142,7 @@ def parse_hmmsearch_output(hmm_out_dir, score_cutoff_dict, length_cutoff_dict): 
                                 elif hmm_to < interval[1]:
                                     continue
                                 else:
-                                    raise Error("Error parsing the hmmsearch output file {}.".format(outfile))
+                                    raise RuntimeError("Error parsing the hmmsearch output file {}.".format(outfile))
                         busco_tx[tname] = 0 # change that targets to with BUSCO hits are stored
         except IOError:
             print("Error opening file {}".format(outfile))
@@ -238,11 +243,14 @@ def run_compleasm(protein_files, threads, busco_db, tmp_dir):
         SystemExit: If there is an error in execting compleasm.
 
     """
+    # compleasm ignores a version suffix in the lineage name and takes the
+    # OrthoDB version from --odb (default odb12), so pass both separately
+    lineage_name, odb = re.match(r'^(.+)_(odb[\d.]+)$', busco_db).groups()
+
     # download the BUSCO database if not present
     if not os.path.exists(os.path.join(args.busco_data_dir, busco_db)):
-        # cut off the _odbNN suffix from busco_db for the download command
-        busco_db_short = re.sub(r'_odb\d+$', '', busco_db)
-        compleasm_cmd = [args.compleasm_bin, "download", busco_db_short]
+        compleasm_cmd = [args.compleasm_bin, "download", lineage_name, "--odb", odb,
+                         "-L", args.busco_data_dir]
         run_simple_process(compleasm_cmd)
 
     # read key data of BUSCO lineage
@@ -262,7 +270,8 @@ def run_compleasm(protein_files, threads, busco_db, tmp_dir):
         # create a tool-specific output subdirectory
         tool = re.search(r'^([^.]+)\.', os.path.basename(protein_file)).group(1)
         tool_out_dir = args.tmp_dir + "/" + tool
-        compleasm_cmd = [args.compleasm_bin, "protein", "-p", protein_file, "-l", busco_db, "-t", str(args.threads), "-o", tool_out_dir]
+        compleasm_cmd = [args.compleasm_bin, "protein", "-p", protein_file, "-l", lineage_name, "--odb", odb,
+                         "-L", args.busco_data_dir, "-t", str(args.threads), "-o", tool_out_dir]
         run_simple_process(compleasm_cmd)
 
     result_dict = {}
@@ -461,7 +470,7 @@ def main():
     Execute workflow
     """
     # Step 0: complete the busco lineage name if necessary
-    if not re.search(r'_odb\d+$', args.busco_db):
+    if not re.search(r'_odb[\d.]+$', args.busco_db):
         args.busco_db = args.busco_db + "_odb12"
     
     # Step 1: Find all input files
